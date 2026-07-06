@@ -1,4 +1,26 @@
 <script>
+/* ============================================================
+   Pages.dashboard — Tela inicial (visão geral dos atendimentos)
+   ------------------------------------------------------------
+   GUIA PARA QUEM ESTÁ COMEÇANDO
+   Esta é a primeira tela que o usuário vê ao abrir o sistema. Ela
+   mostra números resumidos (KPIs) e uma lista de alertas importantes.
+
+   Como funciona, passo a passo:
+     1) render(container)      → desenha o esqueleto da página (título,
+                                  "caixinhas" vazias de KPI com efeito de
+                                  carregamento) e já chama carregarDados().
+     2) carregarDados()        → pede os números de verdade ao servidor
+                                  (função getDashboardData(), em
+                                  Services.gs) respeitando os filtros
+                                  globais do topo da tela.
+     3) renderizarKPIs(cards)  → troca as "caixinhas" vazias pelos
+                                  números reais retornados pelo servidor.
+     4) renderizarAlertas(...) → desenha a lista de alertas (SLA vencido,
+                                  atendimento parado, etc.).
+     5) navegarAlerta(id)      → leva o usuário direto para o atendimento
+                                  quando ele clica em um alerta.
+   ============================================================ */
 Pages.dashboard = {
   render: function(container) {
     var html = '';

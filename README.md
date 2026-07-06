@@ -1,4 +1,4 @@
-# PORTO RA
+# PortoBank Reclame Aqui
 
 Aplicação corporativa para gestão da operação de Reclame Aqui da Porto. O frontend é uma SPA responsiva servida pelo Google Apps Script; o backend aplica as regras de negócio e utiliza Google Sheets como armazenamento, sem expor a planilha aos analistas.
 
@@ -16,6 +16,17 @@ Aplicação corporativa para gestão da operação de Reclame Aqui da Porto. O f
 - cache, locks de concorrência, gravações em lote, validação de CPF e proteção contra Número RA duplicado.
 
 O desenho completo está em [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Convenção de comentários no código
+
+Os arquivos `.gs` e `.html` deste projeto têm, no topo de cada arquivo, um
+bloco de comentário "GUIA PARA QUEM ESTÁ COMEÇANDO" escrito em linguagem
+simples, pensado para quem é estagiário, júnior ou está vendo o projeto
+pela primeira vez. A ideia é que qualquer manutenção pequena (adicionar um
+produto, mudar um texto, entender o fluxo de uma tela) possa ser feita lendo
+esses comentários, sem precisar de ajuda de IA ou de quem escreveu o código
+originalmente. Ao criar um arquivo novo ou uma função grande/nova, mantenha
+esse padrão: explique o "porquê" e o "quando usar", não só o "o quê".
 
 ## Estrutura
 
@@ -46,7 +57,7 @@ appsscript.json         Manifesto Apps Script
 1. Crie um projeto Apps Script independente.
 2. Copie os arquivos `.gs`, `.html` e o conteúdo de `appsscript.json`.
 3. Execute `setup()` no editor e autorize os escopos.
-   - Em projeto independente, o sistema cria `PORTO RA - Banco de Dados`.
+   - Em projeto independente, o sistema cria `PortoBank Reclame Aqui - Banco de Dados`.
    - Para utilizar uma planilha existente, execute `configurarPlanilha('ID_DA_PLANILHA')`.
 4. Em **Implantar > Nova implantação**, selecione **Aplicativo da web**.
 5. Para que o perfil seja reconhecido pelo e-mail, prefira executar como **usuário que acessa o app** e restrinja o acesso ao domínio corporativo.

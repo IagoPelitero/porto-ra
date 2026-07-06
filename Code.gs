@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * PORTO RA - Sistema de Gestão Reclame Aqui
+ * PortoBank Reclame Aqui - Sistema de Gestão de Atendimentos
  * ============================================================================
  * Arquivo: Code.gs
  * Descrição: Ponto de entrada do aplicativo Google Apps Script.
@@ -10,6 +10,36 @@
  *            - onOpen(): Adiciona menu customizado na planilha
  *            - abrirSistema(): Abre o sistema como diálogo modal
  * ============================================================================
+ *
+ * ------------------------------------------------------------------------
+ * GUIA PARA QUEM ESTÁ COMEÇANDO (leia antes de mexer neste arquivo)
+ * ------------------------------------------------------------------------
+ * Pense neste arquivo como a "porta de entrada" do sistema: é o primeiro
+ * código que roda quando alguém abre o link do aplicativo (Web App) ou usa
+ * o menu dentro da planilha do Google Sheets.
+ *
+ * Fluxo básico, em palavras simples:
+ *   1) O usuário abre a URL do app (ou clica em "Abrir Sistema" no menu).
+ *   2) O Google chama automaticamente a função doGet().
+ *   3) doGet() garante que a planilha (nosso "banco de dados") já está
+ *      pronta e manda montar a página inicial (o arquivo Index.html).
+ *   4) O Index.html usa a função include() (definida logo abaixo) para
+ *      "colar" os outros arquivos .html dentro dele, como se fossem
+ *      pedaços de um quebra-cabeça.
+ *
+ * O que normalmente precisa mexer aqui:
+ *   - Trocar o título que aparece na aba do navegador ou no diálogo modal.
+ *   - Adicionar um novo item no menu que aparece dentro da planilha
+ *     (função onOpen).
+ *   - Criar uma nova opção de manutenção no menu, parecida com
+ *     menuReinicializar() ou menuLimparCache().
+ *
+ * O que evitar mexer sem necessidade (risco de quebrar o app inteiro):
+ *   - A lógica de doGet() e include() é praticamente padrão do Google
+ *     Apps Script e raramente precisa mudar.
+ *   - Se algo der errado aqui, o sistema inteiro pode parar de abrir —
+ *     teste sempre em uma cópia/planilha de testes antes de publicar.
+ * ------------------------------------------------------------------------
  */
 
 // ============================================================================
@@ -32,7 +62,7 @@ function doGet(e) {
     const template = HtmlService.createTemplateFromFile('Index');
     const output = template.evaluate();
     
-    output.setTitle('Porto RA - Sistema de Gestão Reclame Aqui');
+    output.setTitle('PortoBank Reclame Aqui - Sistema de Gestão de Atendimentos');
     output.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
     output.addMetaTag('viewport', 'width=device-width, initial-scale=1');
     output.setFaviconUrl('https://www.portoseguro.com.br/favicon.ico');
@@ -42,7 +72,7 @@ function doGet(e) {
     Logger.log('Erro no doGet: ' + e.message);
     return HtmlService.createHtmlOutput(
       '<h1>Erro ao carregar o sistema</h1>' +
-      '<p>Ocorreu um erro ao inicializar o Porto RA. ' +
+      '<p>Ocorreu um erro ao inicializar o PortoBank Reclame Aqui. ' +
       'Tente novamente em alguns instantes ou procure o suporte responsável.</p>'
     );
   }
@@ -100,12 +130,12 @@ function getCurrentUser() {
 
 /**
  * Trigger onOpen - executada automaticamente ao abrir a planilha.
- * Adiciona um menu customizado "Porto RA" com opção de abrir o sistema.
+ * Adiciona um menu customizado "PortoBank Reclame Aqui" com opção de abrir o sistema.
  */
 function onOpen() {
   try {
     SpreadsheetApp.getUi()
-      .createMenu('Porto RA')
+      .createMenu('PortoBank Reclame Aqui')
       .addItem('🚀 Abrir Sistema', 'abrirSistema')
       .addSeparator()
       .addItem('🔄 Reinicializar Planilhas', 'menuReinicializar')
@@ -117,7 +147,7 @@ function onOpen() {
 }
 
 /**
- * Abre o sistema Porto RA como diálogo modal dentro da planilha.
+ * Abre o sistema PortoBank Reclame Aqui como diálogo modal dentro da planilha.
  * Alternativa ao acesso via URL do Web App.
  */
 function abrirSistema() {
@@ -127,11 +157,11 @@ function abrirSistema() {
     
     const template = HtmlService.createTemplateFromFile('Index');
     const html = template.evaluate()
-      .setTitle('Porto RA')
+      .setTitle('PortoBank Reclame Aqui')
       .setWidth(1400)
       .setHeight(900);
     
-    SpreadsheetApp.getUi().showModalDialog(html, 'Porto RA - Sistema de Gestão Reclame Aqui');
+    SpreadsheetApp.getUi().showModalDialog(html, 'PortoBank Reclame Aqui - Sistema de Gestão de Atendimentos');
   } catch (e) {
     Logger.log('Erro ao abrir sistema: ' + e.message);
     SpreadsheetApp.getUi().alert('Erro ao abrir o sistema: ' + e.message);
@@ -190,7 +220,7 @@ function menuLimparCache() {
  */
 function setup() {
   try {
-    Logger.log('=== SETUP INICIAL DO PORTO RA ===');
+    Logger.log('=== SETUP INICIAL DO PORTOBANK RECLAME AQUI ===');
     initializeSheets();
     Logger.log('Setup concluído com sucesso!');
     Logger.log('Para acessar como Web App, publique o projeto:');
@@ -223,7 +253,7 @@ function configurarPlanilha(spreadsheetId) {
  */
 function testSystem() {
   try {
-    Logger.log('=== TESTE DO SISTEMA PORTO RA ===');
+    Logger.log('=== TESTE DO SISTEMA PORTOBANK RECLAME AQUI ===');
     
     // Testa acesso à planilha
     const ss = getSpreadsheet();

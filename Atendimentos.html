@@ -1,4 +1,31 @@
 <script>
+/* ============================================================
+   Pages.atendimentos — Lista operacional de atendimentos
+   ------------------------------------------------------------
+   GUIA PARA QUEM ESTÁ COMEÇANDO
+   Esta tela mostra a tabela com todos os atendimentos (com paginação,
+   ordenação e busca). "state" logo abaixo guarda tudo que a tela precisa
+   lembrar entre uma ação e outra (página atual, texto buscado, etc.) —
+   pense nele como a "memória de curto prazo" desta página.
+
+   Funções que começam com "_" são de uso interno da própria página.
+   Fluxo resumido:
+     render()          → desenha a tela e chama _carregarDados().
+     _bindEvents()      → liga os cliques dos botões (novo, exportar,
+                          recarregar) e o campo de busca.
+     _carregarDados()   → busca a lista de atendimentos no servidor
+                          (getAtendimentos, em Services.gs).
+     _filtrarLocal()    → aplica a busca por texto (RA, cliente, etc.)
+                          em cima dos dados já carregados, sem ir de novo
+                          ao servidor.
+     _ordenarLocal()    → reordena a lista quando o usuário clica em uma
+                          coluna da tabela.
+     _renderTabela()    → desenha as linhas da tabela na tela.
+     _visualizar(id)    → abre o atendimento para edição.
+     _excluir(id)       → pede confirmação e exclui (exclusão lógica) um
+                          atendimento.
+     _exportar()        → gera o arquivo Excel/CSV com os dados da tabela.
+   ============================================================ */
 Pages.atendimentos = {
   state: {
     currentPage: 1,

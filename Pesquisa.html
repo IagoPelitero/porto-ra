@@ -1,4 +1,23 @@
 <script>
+/* ============================================================
+   Pages.pesquisa — Pesquisa avançada de atendimentos
+   ------------------------------------------------------------
+   GUIA PARA QUEM ESTÁ COMEÇANDO
+   Tela com um formulário de busca detalhado (RA, CPF, cliente, período,
+   produto, etc.) para encontrar atendimentos específicos.
+
+   Fluxo resumido:
+     render(container)        → desenha o formulário de busca.
+     montarTermo()             → junta os campos preenchidos no formulário
+                               em um único objeto de filtro.
+     executarPesquisa(event)   → chama pesquisarAtendimentos() no
+                               servidor (Services.gs) com o filtro
+                               montado e mostra os resultados.
+     renderizarResultados(...) → desenha a tabela com o que foi
+                               encontrado.
+     ordenarResultados(...)    → reordena os resultados já carregados,
+                               sem precisar pesquisar de novo no servidor.
+   ============================================================ */
 Pages.pesquisa = {
   resultados: [],
   ordenacao: { campo: 'dataAbertura', direcao: 'desc' },

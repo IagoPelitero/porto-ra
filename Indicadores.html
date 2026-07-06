@@ -1,4 +1,23 @@
 <script>
+/* ============================================================
+   Pages.indicadores — Gráficos e indicadores (KPIs visuais)
+   ------------------------------------------------------------
+   GUIA PARA QUEM ESTÁ COMEÇANDO
+   Esta tela desenha vários gráficos (usando a biblioteca externa
+   Chart.js, carregada em Index.html) com base nos dados vindos de
+   getIndicadores() (em Services.gs).
+
+   Duas funções auxiliares aparecem bastante neste arquivo:
+     _createChart(canvasId, tipo, dados, opcoes) → cria um gráfico novo
+       dentro de uma tag <canvas> já desenhada na tela.
+     _destroyCharts()                             → apaga os gráficos
+       antigos antes de desenhar novos (evita "vazamento de memória" e
+       gráficos duplicados quando o usuário muda de filtro ou volta para
+       esta tela).
+   Sempre que for adicionar um gráfico novo, chame _createChart() e
+   guarde a referência dele em Pages.indicadores._charts, para que ele
+   seja destruído corretamente da próxima vez.
+   ============================================================ */
 Pages.indicadores = {
   _charts: [],
 

@@ -1,4 +1,26 @@
 <script>
+/* ============================================================
+   Pages.configuracoes — Administração da operação (só supervisores)
+   ------------------------------------------------------------
+   GUIA PARA QUEM ESTÁ COMEÇANDO
+   Esta tela mostra um menu com todas as "listas cadastráveis" do sistema
+   (Produtos, Categorias, Status, Prioridades, Canais, Usuários, etc.) —
+   é aqui que dá para adicionar coisas como o produto "Conta Digital
+   PortoBank" sem precisar mexer em código (veja Config.gs para os
+   valores usados apenas na primeira criação da planilha).
+
+   "metadata" (logo abaixo) descreve, para cada tipo de cadastro, quais
+   campos existem no formulário (nome, tipo de campo, se é obrigatório).
+   Isso permite que o mesmo código desenhe formulários diferentes para
+   Produtos, Categorias, Status, etc., sem repetir HTML para cada um.
+   "active" guarda qual aba/lista está sendo exibida no momento.
+
+   Para adicionar um NOVO tipo de cadastro nesta tela (algo além do que já
+   existe), o caminho é: 1) adicionar a nova aba em CONFIG.SHEET_NAMES e
+   COLUMNS (Config.gs), 2) criar uma entrada nova dentro de "metadata"
+   aqui descrevendo os campos do formulário, 3) conferir se
+   getConfigurationEntities_() (Services.gs) já contempla essa aba.
+   ============================================================ */
 Pages.configuracoes = {
   data: {},
   active: 'produtos',

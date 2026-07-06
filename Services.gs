@@ -1,10 +1,45 @@
 /**
  * ============================================================================
- * PORTO RA - Camada de serviços
+ * PortoBank Reclame Aqui - Camada de serviços
  * ============================================================================
  * Regras de negócio, validação, SLA, timeline, indicadores, relatórios e
  * administração das configurações. Todas as funções públicas deste arquivo
  * podem ser chamadas pelo frontend com google.script.run.
+ *
+ * ------------------------------------------------------------------------
+ * GUIA PARA QUEM ESTÁ COMEÇANDO (leia antes de mexer neste arquivo)
+ * ------------------------------------------------------------------------
+ * Este é o arquivo mais "cheio de regras" do sistema — é aqui que ficam as
+ * decisões de negócio (ex: "como calcular o SLA", "o que pode ou não ser
+ * editado", "quem pode excluir um usuário"). Se Database.gs é a ponte com
+ * a planilha, este arquivo é o "cérebro" que decide o que fazer com os
+ * dados antes de salvar ou depois de ler.
+ *
+ * Como o frontend (os arquivos .html) conversa com este arquivo:
+ *   No navegador, o JavaScript chama algo como:
+ *     google.script.run.withSuccessHandler(...).salvarAtendimento(dados)
+ *   O Google Apps Script então executa a função salvarAtendimento(dados)
+ *   definida aqui no servidor e devolve o resultado para o navegador.
+ *   Ou seja: toda função "pública" (sem "_" no final do nome) deste
+ *   arquivo é uma porta de entrada que o frontend pode chamar.
+ *
+ * Convenção de nomes usada neste arquivo:
+ *   - Funções SEM "_" no final (ex: getAtendimentos) → podem ser chamadas
+ *     pelo frontend.
+ *   - Funções COM "_" no final (ex: validateAtendimentoInput_) → são
+ *     "internas", só usadas por outras funções deste mesmo arquivo,
+ *     nunca chamadas diretamente pela tela.
+ *
+ * Tarefas comuns de manutenção:
+ *   - Nova regra de validação de um atendimento → função
+ *     validateAtendimentoInput_().
+ *   - Mudar como o SLA é calculado → funções calcularSLA(),
+ *     calcularVencimentoSLA() e resolveSLA_().
+ *   - Nova métrica no dashboard/indicadores → getDashboardData() e
+ *     getIndicadores().
+ *   - Sempre que uma função "pública" nova for criada aqui, ela pode ser
+ *     chamada direto do HTML com google.script.run.nomeDaFuncao(...).
+ * ------------------------------------------------------------------------
  */
 
 var SERVICE_CONTEXT_ = {};

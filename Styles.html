@@ -1,7 +1,27 @@
 <style>
 /* ============================================================
-   PORTO RA — Design System & Global Styles
-   Premium corporate SPA for Porto Reclame Aqui
+   PortoBank Reclame Aqui — Design System & Global Styles
+   Premium corporate SPA for PortoBank Reclame Aqui
+   ============================================================
+   GUIA PARA QUEM ESTÁ COMEÇANDO (leia antes de mexer neste arquivo)
+   ------------------------------------------------------------
+   Este arquivo é o "estilo visual" único de todo o sistema (cores,
+   espaçamentos, botões, cards, tabelas...). Ele é carregado uma única vez
+   dentro do <head> de Index.html e vale para todas as páginas.
+
+   Antes de escrever uma cor ou medida "solta" (ex.: color: #0046C0;),
+   verifique se já existe uma variável pronta na seção "CSS Custom
+   Properties" logo abaixo (ex.: var(--primary-blue)). Usar as variáveis
+   em vez de valores soltos garante que, se um dia a cor da marca mudar,
+   basta trocar em um único lugar aqui.
+
+   Tarefas comuns de manutenção:
+     - Mudar a cor principal da marca → variável --primary-blue.
+     - Ajustar espaçamento/tamanho de fonte padrão → procure a seção de
+       variáveis correspondente (ex.: espaçamentos, tipografia).
+     - Estilizar um componente novo → procure primeiro se já existe uma
+       classe parecida (ex.: .card, .btn, .badge) antes de criar uma
+       classe do zero, para manter a mesma aparência em todo o sistema.
    ============================================================ */
 
 /* ── Google Fonts Import ── */

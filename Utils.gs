@@ -1,12 +1,34 @@
 /**
  * ============================================================================
- * PORTO RA - Sistema de Gestão Reclame Aqui
+ * PortoBank Reclame Aqui - Sistema de Gestão de Atendimentos
  * ============================================================================
  * Arquivo: Utils.gs
  * Descrição: Funções utilitárias compartilhadas por todo o sistema.
  *            Inclui geração de IDs, formatação de datas, validação de CPF,
  *            cálculo de horas úteis, conversão de dados e sanitização.
  * ============================================================================
+ *
+ * ------------------------------------------------------------------------
+ * GUIA PARA QUEM ESTÁ COMEÇANDO (leia antes de mexer neste arquivo)
+ * ------------------------------------------------------------------------
+ * Pense neste arquivo como a "caixa de ferramentas" do sistema: funções
+ * pequenas, sem regra de negócio, que qualquer outro arquivo pode usar
+ * (Database.gs e Services.gs usam bastante coisa daqui).
+ *
+ * Não é preciso entender o sistema inteiro para editar este arquivo — cada
+ * função aqui deveria fazer só UMA coisa simples (ex: "formatar uma data",
+ * "validar um CPF"). Se perceber que uma função daqui está fazendo mais de
+ * uma coisa ou dependendo de outras partes do sistema, ela provavelmente
+ * deveria estar em Services.gs, não aqui.
+ *
+ * Tarefas comuns de manutenção:
+ *   - Mudar o formato de exibição de data/hora → formatDate,
+ *     formatDateTime.
+ *   - Mudar a regra de validação de CPF → validateCPF.
+ *   - Mudar o horário comercial considerado no cálculo de SLA →
+ *     isBusinessDay, calculateBusinessHours, addBusinessHours (o
+ *     horário em si vem de CONFIG.BUSINESS_HOUR_START/END em Config.gs).
+ * ------------------------------------------------------------------------
  */
 
 // ============================================================================

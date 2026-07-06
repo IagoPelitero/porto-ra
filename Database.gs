@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * PORTO RA - Sistema de Gestão Reclame Aqui
+ * PortoBank Reclame Aqui - Sistema de Gestão de Atendimentos
  * ============================================================================
  * Arquivo: Database.gs
  * Descrição: Camada de acesso a dados (Data Access Layer).
@@ -10,6 +10,36 @@
  *            - Conversão automática entre objetos e linhas da planilha
  *            - Inicialização automática das planilhas com dados padrão
  * ============================================================================
+ *
+ * ------------------------------------------------------------------------
+ * GUIA PARA QUEM ESTÁ COMEÇANDO (leia antes de mexer neste arquivo)
+ * ------------------------------------------------------------------------
+ * Pense neste arquivo como a "ponte" entre o código e a planilha do Google
+ * Sheets. Nenhuma outra parte do sistema deveria ler ou escrever direto na
+ * planilha — todo mundo passa por aqui (principalmente pelas funções
+ * getAll, getById, insert, update e remove).
+ *
+ * Por que existe cache e lock aqui?
+ *   - Cache (CacheService): ler a planilha toda hora é lento, então o
+ *     sistema guarda uma cópia temporária dos dados na memória por alguns
+ *     minutos (veja CONFIG.CACHE_TTL em Config.gs). Sempre que os dados
+ *     mudam, o cache daquela aba é invalidado (apagado) para não mostrar
+ *     informação desatualizada — por isso toda função insert/update/remove
+ *     chama invalidateCache() no final.
+ *   - Lock (LockService): se duas pessoas salvarem um atendimento ao mesmo
+ *     tempo, pode dar problema (ex: duplicar o número de RA). O lock
+ *     garante que só uma gravação acontece por vez.
+ *
+ * Tarefas comuns de manutenção:
+ *   - Se os dados aparecerem "atrasados" depois de uma mudança, o
+ *     problema quase sempre está em algum lugar que esqueceu de chamar
+ *     invalidateCache()/invalidateAllCache().
+ *   - Para adicionar uma aba nova na planilha, comece por Config.gs
+ *     (CONFIG.SHEET_NAMES e COLUMNS) e depois ligue a aba nova aqui,
+ *     dentro de initializeSheets().
+ *   - Erros de "planilha não encontrada" costumam ser resolvidos com a
+ *     função configurarPlanilha() (em Code.gs) ou reexecutando setup().
+ * ------------------------------------------------------------------------
  */
 
 // ============================================================================
@@ -40,7 +70,7 @@ function getSpreadsheet() {
     }
 
     // Permite que o projeto também funcione como Apps Script independente.
-    const created = SpreadsheetApp.create('PORTO RA - Banco de Dados');
+    const created = SpreadsheetApp.create('PortoBank Reclame Aqui - Banco de Dados');
     properties.setProperty('PORTO_RA_SPREADSHEET_ID', created.getId());
     return created;
   } catch (e) {

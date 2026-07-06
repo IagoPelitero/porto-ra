@@ -1,4 +1,13 @@
 <script>
+/* ============================================================
+   Pages.relatorios — Relatórios operacionais e exportações
+   ------------------------------------------------------------
+   GUIA PARA QUEM ESTÁ COMEÇANDO
+   Esta tela permite escolher filtros e gerar relatórios (tabela na tela,
+   exportação em PDF/Excel/CSV) chamando getRelatorio() no servidor
+   (Services.gs). "_reportData" guarda o último relatório gerado, para
+   que exportar/ordenar não precise buscar tudo de novo no servidor.
+   ============================================================ */
 Pages.relatorios = {
   _reportData: [],
   _sorted: { field: null, dir: 'asc' },

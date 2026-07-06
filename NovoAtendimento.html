@@ -1,4 +1,37 @@
 <script>
+/* ============================================================
+   Pages.novoAtendimento — Cadastro e edição de atendimentos
+   ------------------------------------------------------------
+   GUIA PARA QUEM ESTÁ COMEÇANDO
+   Esta é a tela de formulário usada tanto para CRIAR um atendimento novo
+   quanto para EDITAR um já existente. Qual dos dois modos está ativo
+   depende do parâmetro "atendimentoId" recebido em render(): se vier um
+   id, a tela carrega os dados desse atendimento; se vier vazio/nulo, a
+   tela abre em branco para um cadastro novo.
+
+   Funções que começam com "_" são de uso interno da própria página.
+   Fluxo resumido:
+     render(id)                 → se tiver id, busca o atendimento no
+                                   servidor; depois chama _renderForm().
+     _renderForm(container)      → desenha todos os campos do formulário.
+     _bindEvents()                → liga os eventos dos campos (troca de
+                                   produto atualiza categorias, mudar
+                                   status recalcula SLA, etc.).
+     _recalcularSLA()             → chama calcularSLA()/
+                                   calcularVencimentoSLA() no servidor
+                                   (Services.gs) para saber o prazo do
+                                   atendimento.
+     _validarFormulario()         → confere se os campos obrigatórios
+                                   foram preenchidos antes de salvar.
+     _coletarDados()              → junta os valores dos campos da tela
+                                   em um objeto para enviar ao servidor.
+     _salvar()                    → chama salvarAtendimento() ou
+                                   atualizarAtendimento() (Services.gs),
+                                   dependendo se é um cadastro novo ou
+                                   uma edição.
+     _adicionarObservacao()       → registra uma nova observação na
+                                   timeline do atendimento.
+   ============================================================ */
 Pages.novoAtendimento = {
   state: {
     atendimentoId: null,

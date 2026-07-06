@@ -1,6 +1,26 @@
 <script>
 /* ============================================================
-   PORTO RA — Reusable UI Components
+   PortoBank Reclame Aqui — Reusable UI Components
+   ============================================================
+   GUIA PARA QUEM ESTÁ COMEÇANDO (leia antes de mexer neste arquivo)
+   ------------------------------------------------------------
+   Este arquivo é a "caixa de peças de LEGO" visuais do sistema: modal
+   (janela de confirmação), toast (avisos rápidos no canto da tela),
+   badges de status/SLA, cards de KPI, tabela genérica com ordenação e
+   paginação, timeline, etc. As páginas (Dashboard.html, Atendimentos.html
+   e as demais) usam essas peças em vez de escrever HTML repetido toda
+   hora — assim, se um dia quisermos mudar a "cara" de um botão de
+   confirmação, por exemplo, mudamos em um único lugar aqui.
+
+   Como usar (do lado de quem escreve uma página nova):
+     Components.toast('Salvo com sucesso!', 'success');
+     Components.modal({ title: 'Excluir?', body: '...', onConfirm: fn });
+     var html = Components.kpiCard('trending_up', 42, 'Abertos hoje');
+
+   Funções que começam com "_" (ex.: _sortTable, _changePage) são de uso
+   interno — normalmente chamadas por um atributo onclick="..." dentro do
+   próprio HTML gerado aqui, e não deveriam ser chamadas diretamente pelas
+   páginas.
    ============================================================ */
 
 const Components = {
@@ -78,24 +98,32 @@ const Components = {
   _modalOnConfirm: null,
   _modalOnCancel: null,
 
+  // Chamada pelo botão de confirmar do modal (ligada via onclick no HTML
+  // gerado acima). Fecha o modal e executa o callback onConfirm informado.
   _modalConfirm: function() {
     var cb = this._modalOnConfirm;
     this.closeModal();
     if (typeof cb === 'function') cb();
   },
 
+  // Chamada pelo botão de cancelar do modal. Fecha o modal e executa o
+  // callback onCancel informado (se existir).
   _modalCancel: function() {
     var cb = this._modalOnCancel;
     this.closeModal();
     if (typeof cb === 'function') cb();
   },
 
+  // Fecha o modal quando o usuário clica na área escura ao redor dele
+  // (fora da caixa de diálogo).
   _modalOverlayClick: function(e) {
     if (e.target.id === 'active-modal') {
       this.closeModal();
     }
   },
 
+  // Remove o modal da tela e libera a rolagem da página, que tinha sido
+  // travada em modal() enquanto o modal estava aberto.
   closeModal: function() {
     var container = document.getElementById('modal-container');
     var overlay = document.getElementById('active-modal');
@@ -188,6 +216,8 @@ const Components = {
     });
   },
 
+  // Remove um toast da tela antes do tempo (chamado pelo "x" do toast ou
+  // automaticamente pelo setTimeout criado em toast() acima).
   dismissToast: function(id) {
     var toast = document.getElementById(id);
     if (!toast) return;
@@ -385,6 +415,9 @@ const Components = {
   _paginationCounter: 0,
   _paginationRegistry: {},
 
+  // Função interna chamada pelos botões de página (onclick) criados em
+  // pagination() acima. Usa o "registry" para achar a função de callback
+  // certa e avisar a página que o número da página mudou.
   _changePage: function(id, page) {
     var callback = this._paginationRegistry[id];
     if (typeof callback === 'function') callback(page);
@@ -592,11 +625,17 @@ const Components = {
   _tableCounter: 0,
   _tableRegistry: {},
 
+  // Chamada quando o usuário clica no cabeçalho de uma coluna ordenável
+  // (veja o onclick montado dentro de dataTable acima). Repassa o pedido
+  // de ordenação para a função onSort que a página passou como opção.
   _sortTable: function(id, field, direction) {
     var config = this._tableRegistry[id];
     if (config && typeof config.onSort === 'function') config.onSort(field, direction);
   },
 
+  // Chamada quando o usuário clica em um botão de ação de uma linha da
+  // tabela (ex.: editar, excluir). Acha a linha e a ação certas usando os
+  // índices recebidos e executa o onClick configurado em dataTable().
   _runTableAction: function(id, actionIndex, rowIndex, event) {
     if (event) {
       event.preventDefault();

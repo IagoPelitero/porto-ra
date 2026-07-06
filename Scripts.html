@@ -1,6 +1,49 @@
 <script>
+/* ============================================================================
+   PortoBank Reclame Aqui — Scripts.html
+   ============================================================================
+   GUIA PARA QUEM ESTÁ COMEÇANDO (leia antes de mexer neste arquivo)
+   ----------------------------------------------------------------------------
+   Este arquivo é o "controle remoto" da tela (o front-end). Ele roda dentro
+   do navegador do usuário (não no servidor do Google) e é responsável por:
+     - Trocar de página sem recarregar o navegador (é uma SPA — Single Page
+       Application). Cada "página" (Dashboard, Atendimentos, etc.) é só um
+       pedaço de HTML/JavaScript que a gente troca dentro da div <main id="app">.
+     - Buscar dados do servidor usando google.script.run (que chama as
+       funções que existem nos arquivos .gs, como getBootstrapData()).
+     - Controlar coisas visuais gerais: menu lateral, relógio do cabeçalho,
+       filtros globais no topo da tela, máscara de CPF, etc.
+
+   Como as "páginas" funcionam (variável Pages):
+     Cada arquivo de página (ex: Dashboard.html) registra a si mesmo dentro
+     do objeto global "Pages", assim: Pages.dashboard = { render: function(...) {...} }.
+     Quando o usuário clica em um item do menu lateral, App.navigateTo(nome)
+     é chamado e ele executa Pages[nome].render(...) para desenhar a tela.
+
+   Ordem de carregamento (definida em Index.html):
+     Scripts.html (este arquivo) → Components.html → cada página .html.
+     Isso funciona porque App.init() só roda depois que a página termina de
+     carregar (evento DOMContentLoaded, lá no final deste arquivo) — nesse
+     momento todos os outros arquivos já foram lidos e Pages já está cheio.
+
+   Tarefas comuns de manutenção:
+     - Adicionar uma nova página ao menu → crie o arquivo .html da página,
+       registre em Pages.suaPagina = {...}, inclua o arquivo em Index.html
+       e adicione o botão no menu lateral (também em Index.html) com o
+       mesmo "data-page" usado no registro de Pages.
+     - Mudar o que aparece no cabeçalho (nome do usuário, relógio) → veja
+       renderUser() e startClock() abaixo.
+     - Mudar o comportamento dos filtros globais (período, analista, etc.)
+       → veja getFilters(), populateGlobalFilters() e refreshForFilters().
+   ============================================================================ */
+
+// Objeto onde cada página do sistema se registra (ex.: Pages.dashboard, Pages.atendimentos).
+// Veja o guia acima para entender como isso é usado por App.navigateTo().
 var Pages = {};
 
+// Objeto principal da aplicação: guarda o estado atual da tela (página aberta,
+// filtros selecionados, usuário logado) e concentra as funções de navegação
+// e de "cola" entre o HTML e o backend (Code.gs/Services.gs).
 var App = {
   currentPage: 'dashboard',
   currentParams: {},
@@ -9,11 +52,16 @@ var App = {
   filters: {},
   filterTimer: null,
 
+  // Ponto de partida da aplicação. É chamado uma única vez, quando a página
+  // termina de carregar (veja o "DOMContentLoaded" no final deste arquivo).
+  // Ordem do que acontece aqui: liga os cliques do menu/filtros, liga o
+  // relógio do cabeçalho, restaura se o menu lateral estava fechado/aberto,
+  // busca os dados iniciais no servidor e, só então, mostra a primeira página.
   init: function() {
     this.bindShell();
     this.startClock();
     this.restoreSidebar();
-    Components.showLoading('Inicializando o Porto RA...');
+    Components.showLoading('Inicializando o PortoBank Reclame Aqui...');
     this.reloadBootstrap(function() {
       Components.hideLoading();
       var initial = window.location.hash ? window.location.hash.replace('#', '') : 'dashboard';
@@ -30,6 +78,11 @@ var App = {
     });
   },
 
+  // Busca no servidor (função getBootstrapData() em Services.gs) as
+  // "informações de apoio" que o app inteiro precisa: quem é o usuário
+  // logado e as listas usadas nos filtros/formulários (produtos, status,
+  // prioridades, etc.). É chamado no início (init) e também sempre que o
+  // usuário clica no botão de "Atualizar" no cabeçalho.
   reloadBootstrap: function(onSuccess, onFailure) {
     google.script.run
       .withSuccessHandler(function(result) {
@@ -47,6 +100,10 @@ var App = {
       .getBootstrapData();
   },
 
+  // Liga (uma única vez) os cliques e eventos da "casca" fixa da tela:
+  // o menu lateral, a barra de filtros globais e o redimensionamento da
+  // janela. As páginas específicas (Dashboard, Atendimentos, ...) ligam
+  // seus próprios eventos dentro de cada render() delas, não aqui.
   bindShell: function() {
     var sidebar = document.getElementById('sidebar');
     if (sidebar) {
@@ -79,6 +136,11 @@ var App = {
     });
   },
 
+  // Troca a página exibida dentro de <main id="app">, sem recarregar o
+  // navegador. "page" é o nome registrado em Pages (ex.: 'dashboard'),
+  // "params" são dados extras (ex.: o id de um atendimento para editar) e
+  // "replaceHash" evita criar uma nova entrada no histórico do navegador
+  // (usado só na primeira página, ao abrir o sistema).
   navigateTo: function(page, params, replaceHash) {
     var target = page || 'dashboard';
     var options = params || {};
@@ -113,16 +175,24 @@ var App = {
     }
   },
 
+  // Recarrega a página atual do zero (chama navigateTo de novo com os
+  // mesmos parâmetros). Usado pelo botão "Atualizar" do cabeçalho.
   refreshCurrentPage: function() {
     this.navigateTo(this.currentPage, this.currentParams, true);
   },
 
+  // Chamado sempre que o usuário muda algum filtro global (período,
+  // analista, produto...). Só recarrega a página se ela realmente usa
+  // filtros (não faz sentido recarregar, por exemplo, a tela de Cadastro).
   refreshForFilters: function() {
     if (['dashboard', 'atendimentos', 'indicadores', 'relatorios'].indexOf(this.currentPage) !== -1) {
       this.refreshCurrentPage();
     }
   },
 
+  // Lê os valores atuais dos campos da barra de filtros globais (topo da
+  // tela) e devolve um objeto simples { nomeDoFiltro: valor }. Cada página
+  // usa esse objeto para pedir ao servidor só os dados que interessam.
   getFilters: function() {
     var ids = {
       dataInicio: 'filter-data-inicio',
@@ -145,6 +215,8 @@ var App = {
     return result;
   },
 
+  // Botão "Limpar" da barra de filtros: apaga o valor de todos os campos
+  // de filtro e recarrega a página atual sem nenhum filtro aplicado.
   clearFilters: function() {
     document.querySelectorAll('#global-filters input, #global-filters select').forEach(function(element) {
       element.value = '';
@@ -154,6 +226,9 @@ var App = {
     Components.toast('Filtros limpos.', 'info', 2000);
   },
 
+  // Preenche as caixas de seleção (<select>) da barra de filtros globais
+  // (Analista, Produto, Categoria, Status, Prioridade, Canal) com as
+  // listas que vieram do servidor em reloadBootstrap().
   populateGlobalFilters: function() {
     var dd = this.dropdownData || {};
     this.fillSelect('filter-analista', dd.responsaveis || [], 'Todos');
@@ -164,6 +239,10 @@ var App = {
     this.fillSelect('filter-canal', dd.canais || [], 'Todos');
   },
 
+  // Função auxiliar usada por populateGlobalFilters(): recebe o id de um
+  // <select> e uma lista de valores, e desenha as opções dentro dele.
+  // "blankLabel" é o texto da primeira opção (ex.: "Todos"), que representa
+  // "nenhum filtro selecionado".
   fillSelect: function(id, values, blankLabel) {
     var select = document.getElementById(id);
     if (!select) return;
@@ -176,6 +255,8 @@ var App = {
     if (values.indexOf(previous) !== -1) select.value = previous;
   },
 
+  // Mostra o nome e o perfil (Analista, Supervisor, ...) do usuário logado
+  // no canto superior direito do cabeçalho.
   renderUser: function() {
     var name = document.getElementById('current-user-name');
     var profile = document.getElementById('current-user-profile');
@@ -183,6 +264,11 @@ var App = {
     if (profile) profile.textContent = this.user.perfil || 'Analista';
   },
 
+  // Esconde itens de tela restritos (marcados com o atributo HTML
+  // "data-supervisor-only", como o menu Configurações) quando o perfil do
+  // usuário logado não é de supervisão/gestão. Se o usuário já estiver
+  // dentro de uma tela restrita e perder o acesso, ele é redirecionado
+  // para o Dashboard.
   applyRoleVisibility: function() {
     var profile = String(this.user.perfil || '').toLowerCase();
     var allowed = ['supervisor', 'gestor', 'administrador', 'admin'].indexOf(profile) !== -1;
@@ -192,6 +278,10 @@ var App = {
     if (!allowed && this.currentPage === 'configuracoes') this.navigateTo('dashboard');
   },
 
+  // Abre/fecha o menu lateral. No celular (tela estreita) ele vira um menu
+  // "gaveta" que aparece por cima do conteúdo; no computador ele apenas
+  // encolhe para mostrar só os ícones. A preferência de encolhido/aberto
+  // é lembrada no localStorage do navegador (veja restoreSidebar).
   toggleSidebar: function() {
     if (window.innerWidth <= 768) {
       document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -204,6 +294,8 @@ var App = {
     } catch (e) {}
   },
 
+  // Ao carregar a página, verifica se o usuário tinha deixado o menu
+  // lateral encolhido da última vez e aplica a mesma preferência agora.
   restoreSidebar: function() {
     try {
       if (localStorage.getItem('porto-ra-sidebar') === 'collapsed') {
@@ -212,6 +304,8 @@ var App = {
     } catch (e) {}
   },
 
+  // Fecha o menu "gaveta" do celular (usado, por exemplo, depois que o
+  // usuário clica em um item do menu ou toca fora dele).
   closeMobileSidebar: function() {
     var sidebar = document.getElementById('sidebar');
     var backdrop = document.getElementById('sidebar-backdrop');
@@ -219,6 +313,8 @@ var App = {
     if (backdrop) backdrop.classList.remove('active');
   },
 
+  // Liga o relógio/data que aparece no cabeçalho e o atualiza a cada 30
+  // segundos, para não precisar recarregar a página para ver a hora certa.
   startClock: function() {
     var update = function() {
       var now = new Date();
@@ -231,6 +327,10 @@ var App = {
     setInterval(update, 30000);
   },
 
+  // Aplica a máscara visual de CPF (000.000.000-00) enquanto o usuário
+  // digita em um campo de texto. Só formata o que é mostrado na tela — a
+  // validação "de verdade" do CPF acontece no servidor (validateCPF, em
+  // Utils.gs).
   maskCPF: function(input) {
     var value = String(input.value || '').replace(/\D/g, '').slice(0, 11);
     value = value.replace(/(\d{3})(\d)/, '$1.$2');
@@ -239,10 +339,15 @@ var App = {
     input.value = value;
   },
 
+  // Formata um número usando o padrão brasileiro (separador de milhar),
+  // ex.: 1000 vira "1.000". Usado nos KPIs do dashboard e nas tabelas.
   formatNumber: function(value) {
     return Number(value || 0).toLocaleString('pt-BR');
   },
 
+  // Transforma uma data em um texto "relativo" e mais fácil de ler, tipo
+  // "há 5 min", "há 2h" ou "há 3 dia(s)". Se a data for muito antiga,
+  // mostra a data completa em vez do texto relativo.
   timeAgo: function(value) {
     var date = new Date(value);
     if (isNaN(date.getTime())) return '';
@@ -254,6 +359,11 @@ var App = {
     return date.toLocaleDateString('pt-BR');
   },
 
+  // ⚠️ Função de segurança importante: converte qualquer texto (que pode
+  // ter vindo de um cliente, com nome contendo <script> por exemplo) em um
+  // texto "seguro" para colocar dentro de HTML, evitando um ataque
+  // conhecido como XSS (Cross-Site Scripting). Sempre use App.escapeHtml()
+  // ao montar HTML manualmente com dados que vieram do usuário/planilha.
   escapeHtml: function(value) {
     var div = document.createElement('div');
     div.textContent = value === undefined || value === null ? '' : String(value);
