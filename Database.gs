@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * PortoBank Reclame Aqui - Sistema de Gestão de Atendimentos
+ * Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)
  * ============================================================================
  * Arquivo: Database.gs
  * Descrição: Camada de acesso a dados (Data Access Layer).
@@ -70,7 +70,7 @@ function getSpreadsheet() {
     }
 
     // Permite que o projeto também funcione como Apps Script independente.
-    const created = SpreadsheetApp.create('PortoBank Reclame Aqui - Banco de Dados');
+    const created = SpreadsheetApp.create('Portobank RA - Banco de Dados');
     properties.setProperty('PORTO_RA_SPREADSHEET_ID', created.getId());
     return created;
   } catch (e) {
@@ -106,21 +106,12 @@ function initializeSheets() {
     
     // Mapeamento de planilha -> colunas -> dados padrão
     const sheetsConfig = [
-      { name: CONFIG.SHEET_NAMES.ATENDIMENTOS,     columns: COLUMNS.ATENDIMENTOS,     defaults: [] },
-      { name: CONFIG.SHEET_NAMES.TIMELINE,          columns: COLUMNS.TIMELINE,          defaults: [] },
-      { name: CONFIG.SHEET_NAMES.HISTORICO,         columns: COLUMNS.HISTORICO,         defaults: [] },
-      { name: CONFIG.SHEET_NAMES.USUARIOS,          columns: COLUMNS.USUARIOS,          defaults: [] },
-      { name: CONFIG.SHEET_NAMES.PRODUTOS,          columns: COLUMNS.PRODUTOS,          defaults: DEFAULT_PRODUTOS },
-      { name: CONFIG.SHEET_NAMES.CATEGORIAS,        columns: COLUMNS.CATEGORIAS,        defaults: DEFAULT_CATEGORIAS },
-      { name: CONFIG.SHEET_NAMES.STATUS_CONFIG,     columns: COLUMNS.STATUS_CONFIG,     defaults: DEFAULT_STATUS },
-      { name: CONFIG.SHEET_NAMES.PRIORIDADES,       columns: COLUMNS.PRIORIDADES,       defaults: DEFAULT_PRIORIDADES },
-      { name: CONFIG.SHEET_NAMES.CANAIS,            columns: COLUMNS.CANAIS,            defaults: DEFAULT_CANAIS },
-      { name: CONFIG.SHEET_NAMES.TIPOS_ATENDIMENTO, columns: COLUMNS.TIPOS_ATENDIMENTO, defaults: DEFAULT_TIPOS_ATENDIMENTO },
-      { name: CONFIG.SHEET_NAMES.SLAS,              columns: COLUMNS.SLAS,              defaults: [] },
-      { name: CONFIG.SHEET_NAMES.MOTIVOS_PENDENCIA, columns: COLUMNS.MOTIVOS_PENDENCIA, defaults: DEFAULT_MOTIVOS_PENDENCIA },
-      { name: CONFIG.SHEET_NAMES.DASHBOARD,         columns: COLUMNS.DASHBOARD,         defaults: [] },
-      { name: CONFIG.SHEET_NAMES.RELATORIOS,        columns: COLUMNS.RELATORIOS,        defaults: [] },
-      { name: CONFIG.SHEET_NAMES.CONFIGURACOES,     columns: COLUMNS.CONFIGURACOES,     defaults: DEFAULT_CONFIGURACOES }
+      { name: CONFIG.SHEET_NAMES.ATENDIMENTOS, columns: COLUMNS.ATENDIMENTOS, defaults: [] },
+      { name: CONFIG.SHEET_NAMES.TIMELINE,     columns: COLUMNS.TIMELINE,     defaults: [] },
+      { name: CONFIG.SHEET_NAMES.HISTORICO,    columns: COLUMNS.HISTORICO,    defaults: [] },
+      { name: CONFIG.SHEET_NAMES.USUARIOS,     columns: COLUMNS.USUARIOS,     defaults: [] },
+      { name: CONFIG.SHEET_NAMES.PRODUTOS,     columns: COLUMNS.PRODUTOS,     defaults: DEFAULT_PRODUTOS },
+      { name: CONFIG.SHEET_NAMES.CATEGORIAS,   columns: COLUMNS.CATEGORIAS,   defaults: DEFAULT_CATEGORIAS }
     ];
     
     sheetsConfig.forEach(function(cfg) {
@@ -128,10 +119,7 @@ function initializeSheets() {
       if (!sheet) {
         const legacyNames = {
           'Histórico': ['Historico'],
-          'Usuários': ['Usuarios'],
-          'Status': ['StatusConfig'],
-          'Relatórios': ['Relatorios'],
-          'Configurações': ['Configuracoes']
+          'Usuários': ['Usuarios']
         };
         const aliases = legacyNames[cfg.name] || [];
         for (let aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++) {
@@ -162,6 +150,7 @@ function initializeSheets() {
       }
     });
 
+    migrateLegacyData_(ss);
     bootstrapSupervisor_();
     removeDefaultBlankSheet_(ss);
     invalidateAllCache();
@@ -171,6 +160,64 @@ function initializeSheets() {
   } catch (e) {
     Logger.log('Erro na inicialização das planilhas: ' + e.message);
     throw new Error('Erro ao inicializar planilhas: ' + e.message);
+  }
+}
+
+/**
+ * Migração v3: remove abas descontinuadas (SLA, prioridades, tipos de
+ * atendimento, parâmetros gerais etc.) e normaliza status/situações antigas
+ * dos atendimentos para o novo fluxo (Pendente/Concluído).
+ */
+function migrateLegacyData_(ss) {
+  // 1) Remove abas que deixaram de existir no fluxo simplificado.
+  const obsoleteSheets = [
+    'Status', 'StatusConfig', 'Prioridades', 'Canais', 'TiposAtendimento',
+    'SLAs', 'MotivosPendencia', 'Dashboard', 'Relatórios', 'Relatorios',
+    'Configurações', 'Configuracoes'
+  ];
+  obsoleteSheets.forEach(function(name) {
+    const sheet = ss.getSheetByName(name);
+    if (sheet && ss.getSheets().length > 1) {
+      ss.deleteSheet(sheet);
+      Logger.log('Aba descontinuada removida: ' + name);
+    }
+  });
+
+  // 2) Normaliza status e situação de pendência dos atendimentos existentes.
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAMES.ATENDIMENTOS);
+  if (!sheet || sheet.getLastRow() <= 1) return;
+
+  const statusIndex = COLUMNS.ATENDIMENTOS.indexOf('Status');
+  const motivoIndex = COLUMNS.ATENDIMENTOS.indexOf('MotivoPendencia');
+  const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, COLUMNS.ATENDIMENTOS.length);
+  const rows = range.getValues();
+  let changed = false;
+
+  const finalNames = ['concluido', 'resolvido', 'finalizado', 'encerrado', 'cancelado', 'improcedente'];
+  const motivoMap = {
+    'area': 'Em análise área',
+    'cliente': 'Em análise aguardando retorno do cliente'
+  };
+
+  rows.forEach(function(row) {
+    const status = normalizeText_(row[statusIndex]);
+    if (!status) return;
+    if (finalNames.indexOf(status) !== -1) {
+      if (row[statusIndex] !== 'Concluído') { row[statusIndex] = 'Concluído'; changed = true; }
+      if (row[motivoIndex]) { row[motivoIndex] = ''; changed = true; }
+    } else {
+      if (row[statusIndex] !== 'Pendente') { row[statusIndex] = 'Pendente'; changed = true; }
+      const motivo = normalizeText_(row[motivoIndex]);
+      const mapped = motivoMap[motivo] || (SITUACOES_PENDENCIA.indexOf(String(row[motivoIndex])) !== -1
+        ? String(row[motivoIndex])
+        : 'Em análise do analista');
+      if (row[motivoIndex] !== mapped) { row[motivoIndex] = mapped; changed = true; }
+    }
+  });
+
+  if (changed) {
+    range.setValues(rows);
+    Logger.log('Status/situações de atendimentos normalizados para o fluxo v3.');
   }
 }
 
@@ -704,21 +751,12 @@ function findRowById(sheet, id) {
  */
 function getColumnsForSheet(sheetName) {
   const mapping = {};
-  mapping[CONFIG.SHEET_NAMES.ATENDIMENTOS]     = COLUMNS.ATENDIMENTOS;
-  mapping[CONFIG.SHEET_NAMES.TIMELINE]          = COLUMNS.TIMELINE;
-  mapping[CONFIG.SHEET_NAMES.HISTORICO]         = COLUMNS.HISTORICO;
-  mapping[CONFIG.SHEET_NAMES.USUARIOS]          = COLUMNS.USUARIOS;
-  mapping[CONFIG.SHEET_NAMES.PRODUTOS]          = COLUMNS.PRODUTOS;
-  mapping[CONFIG.SHEET_NAMES.CATEGORIAS]        = COLUMNS.CATEGORIAS;
-  mapping[CONFIG.SHEET_NAMES.STATUS_CONFIG]     = COLUMNS.STATUS_CONFIG;
-  mapping[CONFIG.SHEET_NAMES.PRIORIDADES]       = COLUMNS.PRIORIDADES;
-  mapping[CONFIG.SHEET_NAMES.CANAIS]            = COLUMNS.CANAIS;
-  mapping[CONFIG.SHEET_NAMES.TIPOS_ATENDIMENTO] = COLUMNS.TIPOS_ATENDIMENTO;
-  mapping[CONFIG.SHEET_NAMES.SLAS]              = COLUMNS.SLAS;
-  mapping[CONFIG.SHEET_NAMES.MOTIVOS_PENDENCIA] = COLUMNS.MOTIVOS_PENDENCIA;
-  mapping[CONFIG.SHEET_NAMES.DASHBOARD]         = COLUMNS.DASHBOARD;
-  mapping[CONFIG.SHEET_NAMES.RELATORIOS]        = COLUMNS.RELATORIOS;
-  mapping[CONFIG.SHEET_NAMES.CONFIGURACOES]     = COLUMNS.CONFIGURACOES;
-  
+  mapping[CONFIG.SHEET_NAMES.ATENDIMENTOS] = COLUMNS.ATENDIMENTOS;
+  mapping[CONFIG.SHEET_NAMES.TIMELINE]     = COLUMNS.TIMELINE;
+  mapping[CONFIG.SHEET_NAMES.HISTORICO]    = COLUMNS.HISTORICO;
+  mapping[CONFIG.SHEET_NAMES.USUARIOS]     = COLUMNS.USUARIOS;
+  mapping[CONFIG.SHEET_NAMES.PRODUTOS]     = COLUMNS.PRODUTOS;
+  mapping[CONFIG.SHEET_NAMES.CATEGORIAS]   = COLUMNS.CATEGORIAS;
+
   return mapping[sheetName] || [];
 }

@@ -1,6 +1,6 @@
 <script>
 /* ============================================================
-   PortoBank Reclame Aqui — Reusable UI Components
+   Portobank RA — Reusable UI Components
    ============================================================
    GUIA PARA QUEM ESTÁ COMEÇANDO (leia antes de mexer neste arquivo)
    ------------------------------------------------------------
@@ -252,62 +252,6 @@ const Components = {
   },
 
   /* ──────────────────────────────────────────────
-     SLA Badge
-     slaStatus: 'verde' | 'amarelo' | 'laranja' | 'vermelho'
-  ────────────────────────────────────────────── */
-  slaBadge: function(slaStatus) {
-    var colors = {
-      verde: '#43A047',
-      'dentro do prazo': '#43A047',
-      'no prazo': '#43A047',
-      amarelo: '#FDD835',
-      'vence hoje': '#FDD835',
-      laranja: '#FF9800',
-      'próximo do vencimento': '#FF9800',
-      'proximo do vencimento': '#FF9800',
-      vermelho: '#E53935',
-      'sla vencido': '#E53935',
-      vencido: '#E53935',
-      'fora do prazo': '#E53935'
-    };
-    var labels = {
-      verde: 'No prazo',
-      'dentro do prazo': 'No prazo',
-      'no prazo': 'No prazo',
-      amarelo: 'Vence hoje',
-      'vence hoje': 'Vence hoje',
-      laranja: 'Próximo',
-      'próximo do vencimento': 'Próximo',
-      'proximo do vencimento': 'Próximo',
-      vermelho: 'Vencido',
-      'sla vencido': 'Vencido',
-      vencido: 'Vencido',
-      'fora do prazo': 'Vencido'
-    };
-    var textColors = {
-      verde: '#fff',
-      'dentro do prazo': '#fff',
-      'no prazo': '#fff',
-      amarelo: '#333',
-      'vence hoje': '#333',
-      laranja: '#fff',
-      'próximo do vencimento': '#fff',
-      'proximo do vencimento': '#fff',
-      vermelho: '#fff',
-      'sla vencido': '#fff',
-      vencido: '#fff',
-      'fora do prazo': '#fff'
-    };
-
-    var key = (slaStatus || '').toLowerCase();
-    var bg = colors[key] || '#9E9E9E';
-    var label = labels[key] || slaStatus || '—';
-    var textColor = textColors[key] || '#fff';
-
-    return '<span class="badge badge-sla" style="background:' + bg + ';color:' + textColor + '">' + label + '</span>';
-  },
-
-  /* ──────────────────────────────────────────────
      Timeline Component
      entries: [{ tipo, descricao, usuario, dataHora, valorAntigo, valorNovo }]
   ────────────────────────────────────────────── */
@@ -464,49 +408,6 @@ const Components = {
   },
 
   /* ──────────────────────────────────────────────
-     Alert Card
-  ────────────────────────────────────────────── */
-  alertCard: function(tipo, mensagem, atendimentoId, prioridade) {
-    var severityMap = {
-      'SLA Vencido': 'critical',
-      'SLA Próximo': 'high',
-      'Reincidência': 'high',
-      'Sem Resposta': 'medium',
-      'Aguardando': 'low'
-    };
-
-    var colorMap = {
-      critical: '#E53935',
-      high: '#FF6B00',
-      medium: '#FDD835',
-      low: '#00A3E0'
-    };
-
-    var iconMap = {
-      critical: 'error',
-      high: 'warning',
-      medium: 'schedule',
-      low: 'info'
-    };
-
-    var severity = severityMap[tipo] || 'low';
-    var bgColor = colorMap[severity];
-    var iconName = iconMap[severity];
-
-    return '<div class="alert-card severity-' + severity + '">' +
-      '<div class="alert-icon" style="background:' + bgColor + '">' +
-        '<span class="material-icons">' + iconName + '</span>' +
-      '</div>' +
-      '<div class="alert-content">' +
-        '<div class="alert-type" style="color:' + bgColor + '">' + (tipo || 'Alerta') + '</div>' +
-        '<div class="alert-message">' + (mensagem || '') + '</div>' +
-        (atendimentoId ? '<div class="alert-meta">ID: ' + atendimentoId + (prioridade ? ' · Prioridade: ' + prioridade : '') + '</div>' : '') +
-      '</div>' +
-      '<span class="material-icons" style="color:var(--text-muted);font-size:18px">chevron_right</span>' +
-    '</div>';
-  },
-
-  /* ──────────────────────────────────────────────
      Data Table (sortable)
      options: {
        headers: [{ key, label, sortable, width }],
@@ -646,45 +547,6 @@ const Components = {
     var action = config.actions[actionIndex];
     var row = config.rows[rowIndex];
     if (action && typeof action.onClick === 'function') action.onClick(row);
-  },
-
-  /* ──────────────────────────────────────────────
-     Tabs Component
-     options: {
-       tabs: [{ id, label, icon, badge }],
-       activeTab: string,
-       onTabChange: function name as string
-     }
-  ────────────────────────────────────────────── */
-  tabs: function(options) {
-    var html = '<div class="tabs">';
-
-    for (var i = 0; i < options.tabs.length; i++) {
-      var tab = options.tabs[i];
-      var active = tab.id === options.activeTab ? ' active' : '';
-      var badgeHtml = tab.badge ? '<span class="tab-badge">' + tab.badge + '</span>' : '';
-      var iconHtml = tab.icon ? '<span class="material-icons">' + tab.icon + '</span>' : '';
-
-      html += '<div class="tab-item' + active + '" onclick="' + options.onTabChange + '(\'' + tab.id + '\')">' +
-        iconHtml + tab.label + badgeHtml +
-      '</div>';
-    }
-
-    html += '</div>';
-    return html;
-  },
-
-  /* ──────────────────────────────────────────────
-     Search Box
-  ────────────────────────────────────────────── */
-  searchBox: function(placeholder, onInputFnName, value) {
-    return '<div class="search-box">' +
-      '<span class="material-icons">search</span>' +
-      '<input type="text" placeholder="' + (placeholder || 'Pesquisar...') + '" ' +
-        'oninput="' + onInputFnName + '(this.value)" ' +
-        (value ? 'value="' + value + '"' : '') +
-      '>' +
-    '</div>';
   },
 
   /* ──────────────────────────────────────────────

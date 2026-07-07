@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * PortoBank Reclame Aqui - Sistema de Gestão de Atendimentos
+ * Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)
  * ============================================================================
  * Arquivo: Code.gs
  * Descrição: Ponto de entrada do aplicativo Google Apps Script.
@@ -62,7 +62,7 @@ function doGet(e) {
     const template = HtmlService.createTemplateFromFile('Index');
     const output = template.evaluate();
     
-    output.setTitle('PortoBank Reclame Aqui - Sistema de Gestão de Atendimentos');
+    output.setTitle('Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)');
     output.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
     output.addMetaTag('viewport', 'width=device-width, initial-scale=1');
     output.setFaviconUrl('https://www.portoseguro.com.br/favicon.ico');
@@ -72,7 +72,7 @@ function doGet(e) {
     Logger.log('Erro no doGet: ' + e.message);
     return HtmlService.createHtmlOutput(
       '<h1>Erro ao carregar o sistema</h1>' +
-      '<p>Ocorreu um erro ao inicializar o PortoBank Reclame Aqui. ' +
+      '<p>Ocorreu um erro ao inicializar o Portobank RA. ' +
       'Tente novamente em alguns instantes ou procure o suporte responsável.</p>'
     );
   }
@@ -130,12 +130,12 @@ function getCurrentUser() {
 
 /**
  * Trigger onOpen - executada automaticamente ao abrir a planilha.
- * Adiciona um menu customizado "PortoBank Reclame Aqui" com opção de abrir o sistema.
+ * Adiciona um menu customizado "Portobank RA" com opção de abrir o sistema.
  */
 function onOpen() {
   try {
     SpreadsheetApp.getUi()
-      .createMenu('PortoBank Reclame Aqui')
+      .createMenu('Portobank RA')
       .addItem('🚀 Abrir Sistema', 'abrirSistema')
       .addSeparator()
       .addItem('🔄 Reinicializar Planilhas', 'menuReinicializar')
@@ -147,7 +147,7 @@ function onOpen() {
 }
 
 /**
- * Abre o sistema PortoBank Reclame Aqui como diálogo modal dentro da planilha.
+ * Abre o sistema Portobank RA como diálogo modal dentro da planilha.
  * Alternativa ao acesso via URL do Web App.
  */
 function abrirSistema() {
@@ -157,11 +157,11 @@ function abrirSistema() {
     
     const template = HtmlService.createTemplateFromFile('Index');
     const html = template.evaluate()
-      .setTitle('PortoBank Reclame Aqui')
+      .setTitle('Portobank RA')
       .setWidth(1400)
       .setHeight(900);
     
-    SpreadsheetApp.getUi().showModalDialog(html, 'PortoBank Reclame Aqui - Sistema de Gestão de Atendimentos');
+    SpreadsheetApp.getUi().showModalDialog(html, 'Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)');
   } catch (e) {
     Logger.log('Erro ao abrir sistema: ' + e.message);
     SpreadsheetApp.getUi().alert('Erro ao abrir o sistema: ' + e.message);
@@ -220,7 +220,7 @@ function menuLimparCache() {
  */
 function setup() {
   try {
-    Logger.log('=== SETUP INICIAL DO PORTOBANK RECLAME AQUI ===');
+    Logger.log('=== SETUP INICIAL DO PORTOBANK RA ===');
     initializeSheets();
     Logger.log('Setup concluído com sucesso!');
     Logger.log('Para acessar como Web App, publique o projeto:');
@@ -253,7 +253,7 @@ function configurarPlanilha(spreadsheetId) {
  */
 function testSystem() {
   try {
-    Logger.log('=== TESTE DO SISTEMA PORTOBANK RECLAME AQUI ===');
+    Logger.log('=== TESTE DO SISTEMA PORTOBANK RA ===');
     
     // Testa acesso à planilha
     const ss = getSpreadsheet();
@@ -271,12 +271,12 @@ function testSystem() {
     });
     
     // Testa leitura de dados
-    const status = getAll(CONFIG.SHEET_NAMES.STATUS_CONFIG);
-    Logger.log('✓ Status carregados: ' + status.length);
-    
-    const prioridades = getAll(CONFIG.SHEET_NAMES.PRIORIDADES);
-    Logger.log('✓ Prioridades carregadas: ' + prioridades.length);
-    
+    const produtos = getAll(CONFIG.SHEET_NAMES.PRODUTOS);
+    Logger.log('✓ Produtos carregados: ' + produtos.length);
+
+    const categorias = getAll(CONFIG.SHEET_NAMES.CATEGORIAS);
+    Logger.log('✓ Categorias carregadas: ' + categorias.length);
+
     // Testa usuário atual
     const user = getCurrentUser();
     Logger.log('✓ Usuário atual: ' + JSON.stringify(user));

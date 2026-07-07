@@ -4,22 +4,22 @@
   <base target="_top">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PortoBank Reclame Aqui</title>
+  <title>Portobank RA</title>
   <!--
     Este arquivo é apenas a "casca" (shell) do sistema: monta o layout
-    (menu lateral, cabeçalho, barra de filtros) e usa include() do
-    HtmlService para colar dentro dele os outros arquivos .html do
-    projeto, nesta ordem (a mesma esperada pelos comentários de
-    Scripts.html):
+    (menu lateral e cabeçalho) e usa include() do HtmlService para colar
+    dentro dele os outros arquivos .html do projeto, nesta ordem:
       Styles.html (CSS) → Scripts.html (App/Pages) → Components.html
       (peças de UI) → cada página (Dashboard, NovoAtendimento,
-      Atendimentos, Pesquisa, Indicadores, Relatorios, Configuracoes).
+      Relatorios, Configuracoes).
     Depois que tudo carrega, App.init() (definido em Scripts.html) é
     chamado no DOMContentLoaded e desenha a primeira tela dentro de
     <main id="app">.
   -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <?!= include('Styles'); ?>
 </head>
 <body>
@@ -30,7 +30,7 @@
       <div class="sidebar-header">
         <div class="sidebar-logo">
           <div class="sidebar-logo-abbr">RA</div>
-          <span class="sidebar-logo-text">Porto RA</span>
+          <span class="sidebar-logo-text">Portobank RA</span>
         </div>
         <button class="sidebar-toggle" onclick="App.toggleSidebar()" title="Recolher/expandir menu">
           <span class="material-icons">menu</span>
@@ -43,15 +43,6 @@
         <li class="sidebar-item" data-page="novoAtendimento" data-tooltip="Novo Atendimento">
           <span class="material-icons">add_circle</span><span class="sidebar-label">Novo Atendimento</span>
         </li>
-        <li class="sidebar-item" data-page="atendimentos" data-tooltip="Atendimentos">
-          <span class="material-icons">list_alt</span><span class="sidebar-label">Atendimentos</span>
-        </li>
-        <li class="sidebar-item" data-page="pesquisa" data-tooltip="Pesquisar">
-          <span class="material-icons">search</span><span class="sidebar-label">Pesquisar</span>
-        </li>
-        <li class="sidebar-item" data-page="indicadores" data-tooltip="Indicadores">
-          <span class="material-icons">bar_chart</span><span class="sidebar-label">Indicadores</span>
-        </li>
         <li class="sidebar-item" data-page="relatorios" data-tooltip="Relatórios">
           <span class="material-icons">description</span><span class="sidebar-label">Relatórios</span>
         </li>
@@ -60,7 +51,7 @@
         </li>
       </ul>
       <div class="sidebar-footer">
-        <div class="sidebar-version">PortoBank Reclame Aqui</div>
+        <div class="sidebar-version">Portobank RA</div>
       </div>
     </nav>
 
@@ -68,7 +59,7 @@
       <header class="header">
         <div class="header-left">
           <span class="header-ra-badge">RA</span>
-          <span class="header-title">PortoBank Reclame Aqui</span>
+          <span class="header-title">Portobank RA — Gestão de Atendimentos</span>
         </div>
         <div class="header-right">
           <div class="header-datetime">
@@ -88,53 +79,6 @@
         </div>
       </header>
 
-      <div class="filters-bar" id="global-filters">
-        <div class="filter-group">
-          <label>Período</label>
-          <input type="date" id="filter-data-inicio" class="filter-control">
-          <input type="date" id="filter-data-fim" class="filter-control">
-        </div>
-        <div class="filter-group">
-          <label>Analista</label>
-          <select id="filter-analista" class="filter-control"></select>
-        </div>
-        <div class="filter-group">
-          <label>Produto</label>
-          <select id="filter-produto" class="filter-control"></select>
-        </div>
-        <div class="filter-group">
-          <label>Categoria</label>
-          <select id="filter-categoria" class="filter-control"></select>
-        </div>
-        <div class="filter-group">
-          <label>Status</label>
-          <select id="filter-status" class="filter-control"></select>
-        </div>
-        <div class="filter-group">
-          <label>Prioridade</label>
-          <select id="filter-prioridade" class="filter-control"></select>
-        </div>
-        <div class="filter-group">
-          <label>Canal</label>
-          <select id="filter-canal" class="filter-control"></select>
-        </div>
-        <div class="filter-group">
-          <label>RA</label>
-          <input type="text" id="filter-ra" class="filter-control" placeholder="Número RA">
-        </div>
-        <div class="filter-group">
-          <label>Cliente</label>
-          <input type="text" id="filter-cliente" class="filter-control" placeholder="Nome do cliente">
-        </div>
-        <div class="filter-group">
-          <label>CPF</label>
-          <input type="text" id="filter-cpf" class="filter-control" placeholder="CPF">
-        </div>
-        <div class="filters-actions">
-          <button class="btn btn-secondary btn-sm" onclick="App.clearFilters()">Limpar filtros</button>
-        </div>
-      </div>
-
       <main class="content-area" id="app"></main>
     </div>
   </div>
@@ -150,16 +94,7 @@
   <?!= include('Components'); ?>
   <?!= include('Dashboard'); ?>
   <?!= include('NovoAtendimento'); ?>
-  <?!= include('Atendimentos'); ?>
-  <?!= include('Pesquisa'); ?>
-  <?!= include('Indicadores'); ?>
   <?!= include('Relatorios'); ?>
   <?!= include('Configuracoes'); ?>
-
-  <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      App.init();
-    });
-  </script>
 </body>
 </html>

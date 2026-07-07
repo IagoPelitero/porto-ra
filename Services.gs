@@ -1,44 +1,26 @@
 /**
  * ============================================================================
- * PortoBank Reclame Aqui - Camada de serviços
+ * Portobank RA - Camada de serviços
  * ============================================================================
- * Regras de negócio, validação, SLA, timeline, indicadores, relatórios e
+ * Regras de negócio, validação, timeline, dashboard, relatórios e
  * administração das configurações. Todas as funções públicas deste arquivo
  * podem ser chamadas pelo frontend com google.script.run.
  *
  * ------------------------------------------------------------------------
- * GUIA PARA QUEM ESTÁ COMEÇANDO (leia antes de mexer neste arquivo)
+ * GUIA PARA QUEM ESTÁ COMEÇANDO
  * ------------------------------------------------------------------------
- * Este é o arquivo mais "cheio de regras" do sistema — é aqui que ficam as
- * decisões de negócio (ex: "como calcular o SLA", "o que pode ou não ser
- * editado", "quem pode excluir um usuário"). Se Database.gs é a ponte com
- * a planilha, este arquivo é o "cérebro" que decide o que fazer com os
- * dados antes de salvar ou depois de ler.
- *
- * Como o frontend (os arquivos .html) conversa com este arquivo:
- *   No navegador, o JavaScript chama algo como:
- *     google.script.run.withSuccessHandler(...).salvarAtendimento(dados)
- *   O Google Apps Script então executa a função salvarAtendimento(dados)
- *   definida aqui no servidor e devolve o resultado para o navegador.
- *   Ou seja: toda função "pública" (sem "_" no final do nome) deste
- *   arquivo é uma porta de entrada que o frontend pode chamar.
- *
- * Convenção de nomes usada neste arquivo:
+ * Convenção de nomes:
  *   - Funções SEM "_" no final (ex: getAtendimentos) → podem ser chamadas
- *     pelo frontend.
- *   - Funções COM "_" no final (ex: validateAtendimentoInput_) → são
- *     "internas", só usadas por outras funções deste mesmo arquivo,
- *     nunca chamadas diretamente pela tela.
+ *     pelo frontend via google.script.run.
+ *   - Funções COM "_" no final (ex: validateAtendimentoInput_) → internas.
  *
- * Tarefas comuns de manutenção:
- *   - Nova regra de validação de um atendimento → função
- *     validateAtendimentoInput_().
- *   - Mudar como o SLA é calculado → funções calcularSLA(),
- *     calcularVencimentoSLA() e resolveSLA_().
- *   - Nova métrica no dashboard/indicadores → getDashboardData() e
- *     getIndicadores().
- *   - Sempre que uma função "pública" nova for criada aqui, ela pode ser
- *     chamada direto do HTML com google.script.run.nomeDaFuncao(...).
+ * Regras centrais do fluxo:
+ *   - Status possíveis: "Pendente" e "Concluído" (STATUS_LIST em Config.gs).
+ *   - Quando Pendente, a "Situação da pendência" é obrigatória
+ *     (SITUACOES_PENDENCIA em Config.gs).
+ *   - Analista vê/edita apenas os próprios atendimentos; Supervisor vê
+ *     todos e pode delegar a um analista (canAccessAtendimento_,
+ *     restrictToOwnerIfNeeded_).
  * ------------------------------------------------------------------------
  */
 
@@ -48,16 +30,17 @@ var SERVICE_CONTEXT_ = {};
 // INICIALIZAÇÃO E DADOS DE APOIO
 // ============================================================================
 
+/**
+ * Dados de apoio carregados uma única vez pelo frontend na inicialização:
+ * usuário logado + listas dos formulários/filtros. Status, situações de
+ * pendência e canais são fixos (Config.gs); produtos, categorias e usuários
+ * vêm da planilha.
+ */
 function getBootstrapData() {
   ensureDatabaseReady();
 
   const produtos = activeSorted_(CONFIG.SHEET_NAMES.PRODUTOS);
   const categorias = activeSorted_(CONFIG.SHEET_NAMES.CATEGORIAS);
-  const status = activeSorted_(CONFIG.SHEET_NAMES.STATUS_CONFIG);
-  const prioridades = activeSorted_(CONFIG.SHEET_NAMES.PRIORIDADES);
-  const canais = activeSorted_(CONFIG.SHEET_NAMES.CANAIS);
-  const tipos = activeSorted_(CONFIG.SHEET_NAMES.TIPOS_ATENDIMENTO);
-  const motivos = activeSorted_(CONFIG.SHEET_NAMES.MOTIVOS_PENDENCIA);
   const usuarios = activeSorted_(CONFIG.SHEET_NAMES.USUARIOS);
 
   const produtoPorId = indexBy_(produtos, 'Id');
@@ -75,14 +58,11 @@ function getBootstrapData() {
       produtos: pluck_(produtos, 'Nome'),
       categorias: pluck_(categorias, 'Nome'),
       categoriasPorProduto: categoriasPorProduto,
-      status: pluck_(status, 'Nome'),
-      prioridades: pluck_(prioridades, 'Nome'),
-      canais: pluck_(canais, 'Nome'),
-      tiposAtendimento: pluck_(tipos, 'Nome'),
-      motivosPendencia: pluck_(motivos, 'Nome'),
+      status: STATUS_LIST.map(function(item) { return item.Nome; }),
+      situacoesPendencia: SITUACOES_PENDENCIA.slice(),
+      canais: CANAIS_LIST.slice(),
       responsaveis: pluck_(usuarios, 'Nome'),
-      statusCores: keyValue_(status, 'Nome', 'Cor'),
-      prioridadeCores: keyValue_(prioridades, 'Nome', 'Cor')
+      statusCores: getStatusColorMap_()
     }
   };
 }
@@ -129,26 +109,20 @@ function getAtendimento(id) {
   };
 }
 
-function pesquisarAtendimentos(termo) {
+/**
+ * Verificação rápida de duplicidade do Protocolo Odin (usada pelo formulário
+ * enquanto o usuário digita, sem carregar a lista inteira).
+ */
+function verificarProtocoloDuplicado(protocolo, ignorarId) {
   ensureDatabaseReady();
-  let records = restrictToOwnerIfNeeded_(getActiveAtendimentos_(), getActor_());
-
-  if (typeof termo === 'string' || typeof termo === 'number') {
-    const query = normalizeText_(termo);
-    if (!query) return [];
-    records = records.filter(function(record) {
-      return [
-        record.Id, record.NumeroRA, record.CPF, record.Cliente, record.Produto,
-        record.Categoria, record.Status, record.Responsavel, record.Canal
-      ].some(function(value) {
-        return normalizeText_(value).indexOf(query) !== -1;
-      });
-    });
-  } else {
-    records = applyAtendimentoFilters_(records, termo || {});
-  }
-
-  return decorateAtendimentos_(records);
+  const normalized = normalizeText_(protocolo);
+  if (!normalized) return { duplicado: false };
+  const safeId = sanitizeInput(ignorarId);
+  const duplicado = getActiveAtendimentos_().some(function(record) {
+    return String(record.Id) !== String(safeId || '') &&
+      normalizeText_(record.NumeroRA) === normalized;
+  });
+  return { duplicado: duplicado };
 }
 
 function getActiveAtendimentos_() {
@@ -165,14 +139,14 @@ function applyAtendimentoFilters_(records, filtros) {
     produto: 'Produto',
     categoria: 'Categoria',
     status: 'Status',
-    prioridade: 'Prioridade',
+    situacao: 'MotivoPendencia',
     canal: 'Canal',
     analista: 'Responsavel',
-    responsavel: 'Responsavel',
-    tipoAtendimento: 'TipoAtendimento'
+    responsavel: 'Responsavel'
   };
   const containsFields = {
     numeroRA: 'NumeroRA',
+    protocolo: 'NumeroRA',
     cliente: 'Cliente',
     cpf: 'CPF'
   };
@@ -215,60 +189,32 @@ function sortClientRecords_(records, order) {
 function salvarAtendimento(dados) {
   ensureDatabaseReady();
   const input = validateAtendimentoInput_(dados || {});
-  assertUniqueNumeroRA_(input.numeroRA, '');
 
   const actor = getActor_();
   // Analista não escolhe responsável: o sistema identifica automaticamente
-  // quem está criando o atendimento. Apenas o Supervisor pode escolher outro.
+  // quem está criando o atendimento. Apenas o Supervisor pode delegar a
+  // outro analista.
   if (!isSupervisorProfile_(actor.perfil) || !input.responsavel) {
     input.responsavel = actor.nome;
   }
   const now = new Date();
   const opening = parseInputDate_(input.dataAbertura, false) || now;
-  const sla = resolveSLA_(
-    input.produto,
-    input.categoria,
-    input.canal,
-    input.tipoAtendimento,
-    input.prioridade,
-    opening
-  );
-  const slaHours = input.slaHoras ? Number(input.slaHoras) : sla.slaHoras;
-  const dueDate = parseInputDate_(input.dataPrevista, true) || addBusinessHours(opening, slaHours);
-  const waiting = isWaitingStatus_(input.status);
   const finalStatus = isFinalStatus_(input.status);
-  const resolutionDate = finalStatus ? now : '';
 
   const record = {
     Id: generateId('ATD'),
     NumeroRA: input.numeroRA,
     DataAbertura: opening,
-    DataRecebimento: now,
     Canal: input.canal,
-    TipoAtendimento: input.tipoAtendimento,
     Cliente: input.cliente,
     CPF: input.cpf,
-    Telefone: input.telefone,
-    Email: input.email,
     Produto: input.produto,
     Categoria: input.categoria,
-    Subcategoria: input.subcategoria,
-    Assunto: input.assunto,
-    Descricao: input.descricao,
     Status: input.status,
-    Prioridade: input.prioridade,
-    Responsavel: input.responsavel,
-    SLAHoras: slaHours,
-    DataVencimentoSLA: dueDate,
-    StatusSLA: calculateSLAStatus_(dueDate, resolutionDate || now),
-    DataInicioEspera: waiting ? now : '',
-    TempoEsperaAcumulado: 0,
     MotivoPendencia: input.motivoPendencia,
-    DataResolucao: resolutionDate,
-    TempoResolucaoHoras: finalStatus ? calculateBusinessHours(opening, now) : '',
-    Resolucao: input.resolucao,
-    NotaConsumidor: input.notaConsumidor,
-    Avaliacao: input.avaliacao,
+    Responsavel: input.responsavel,
+    DataResolucao: finalStatus ? now : '',
+    TempoResolucaoHoras: finalStatus ? roundHours_(diffInHours(opening, now)) : '',
     Observacoes: input.observacoes,
     CriadoPor: actor.nome,
     DataCriacao: now,
@@ -281,9 +227,9 @@ function salvarAtendimento(dados) {
 
   insertAtendimentoUnique_(record);
   insertTimeline_(record.Id, 'Criação', 'Atendimento criado.', '', input.status, actor.nome, '');
-
-  if (waiting) {
-    insertWaitTimeline_(record, 'Espera iniciada', now, 0, actor.nome);
+  if (input.responsavel !== actor.nome) {
+    insertTimeline_(record.Id, 'Delegação', 'Atendimento delegado pelo supervisor.',
+      '', input.responsavel, actor.nome, '');
   }
 
   return { success: true, id: record.Id };
@@ -301,7 +247,6 @@ function atualizarAtendimento(id, dados, justificativa) {
   }
 
   const input = validateAtendimentoInput_(dados || {});
-  assertUniqueNumeroRA_(input.numeroRA, safeId);
 
   // Analista não escolhe responsável: mantém o responsável atual. Apenas o
   // Supervisor pode reatribuir o atendimento a outro analista.
@@ -310,80 +255,24 @@ function atualizarAtendimento(id, dados, justificativa) {
   }
   const now = new Date();
   const opening = parseInputDate_(input.dataAbertura, false) || asDate_(oldRecord.DataAbertura) || now;
-  const previousSla = Number(oldRecord.SLAHoras || 0);
-  const slaHours = input.slaHoras ? Number(input.slaHoras) : previousSla;
-  const slaChanged = previousSla !== slaHours;
   const safeJustification = sanitizeInput(justificativa);
-
-  if (slaChanged && !safeJustification) {
-    throw new Error('A justificativa é obrigatória para alteração do SLA.');
-  }
-
-  let dueDate = parseInputDate_(input.dataPrevista, true);
-  if (!dueDate) {
-    dueDate = slaChanged
-      ? addBusinessHours(opening, slaHours)
-      : (asDate_(oldRecord.DataVencimentoSLA) || addBusinessHours(opening, slaHours));
-  }
-
-  const oldWaiting = isWaitingStatus_(oldRecord.Status);
-  const newWaiting = isWaitingStatus_(input.status);
   const statusChanged = normalizeText_(oldRecord.Status) !== normalizeText_(input.status);
-  let waitStart = oldRecord.DataInicioEspera;
-  let accumulatedWait = Number(oldRecord.TempoEsperaAcumulado || 0);
-  let finishedWait = null;
 
-  if (oldWaiting && (!newWaiting || statusChanged)) {
-    const start = asDate_(oldRecord.DataInicioEspera);
-    const elapsed = start ? Math.max(0, diffInHours(start, now)) : 0;
-    accumulatedWait += elapsed;
-    finishedWait = { record: oldRecord, elapsed: elapsed };
-    waitStart = '';
-  }
-  if (newWaiting && (!oldWaiting || statusChanged)) {
-    waitStart = now;
-  }
-
-  const wasFinal = isFinalStatus_(oldRecord.Status);
-  const isFinal = isFinalStatus_(input.status);
-  let resolutionDate = oldRecord.DataResolucao;
-  let resolutionHours = oldRecord.TempoResolucaoHoras;
-  if (isFinal && !wasFinal) {
-    resolutionDate = now;
-    resolutionHours = calculateBusinessHours(opening, now);
-  } else if (!isFinal && wasFinal) {
-    resolutionDate = '';
-    resolutionHours = '';
-  }
+  const resolution = resolveResolution_(oldRecord, input.status, opening, now);
 
   const updates = {
     NumeroRA: input.numeroRA,
     DataAbertura: opening,
     Canal: input.canal,
-    TipoAtendimento: input.tipoAtendimento,
     Cliente: input.cliente,
     CPF: input.cpf,
-    Telefone: input.telefone,
-    Email: input.email,
     Produto: input.produto,
     Categoria: input.categoria,
-    Subcategoria: input.subcategoria,
-    Assunto: input.assunto,
-    Descricao: input.descricao,
     Status: input.status,
-    Prioridade: input.prioridade,
-    Responsavel: input.responsavel,
-    SLAHoras: slaHours,
-    DataVencimentoSLA: dueDate,
-    StatusSLA: calculateSLAStatus_(dueDate, resolutionDate || now),
-    DataInicioEspera: waitStart,
-    TempoEsperaAcumulado: Math.round(accumulatedWait * 100) / 100,
     MotivoPendencia: input.motivoPendencia,
-    DataResolucao: resolutionDate,
-    TempoResolucaoHoras: resolutionHours,
-    Resolucao: input.resolucao,
-    NotaConsumidor: input.notaConsumidor,
-    Avaliacao: input.avaliacao,
+    Responsavel: input.responsavel,
+    DataResolucao: resolution.date,
+    TempoResolucaoHoras: resolution.hours,
     Observacoes: input.observacoes,
     AtualizadoPor: actor.nome,
     DataAtualizacao: now
@@ -398,33 +287,64 @@ function atualizarAtendimento(id, dados, justificativa) {
       safeId,
       'Atualização',
       history.length + ' campo(s) alterado(s). ' + (safeJustification || ''),
-      '',
-      '',
-      actor.nome,
-      ''
+      '', '', actor.nome, ''
     );
   }
 
-  if (finishedWait) {
-    insertWaitTimeline_(finishedWait.record, 'Espera finalizada', now, finishedWait.elapsed, actor.nome);
-  }
-
   if (statusChanged) {
-    insertTimeline_(safeId, isFinal ? 'Encerramento' : 'Mudança de status',
-      'Status alterado.', oldRecord.Status, input.status, actor.nome, safeJustification);
-  }
-  if (slaChanged) {
-    insertTimeline_(safeId, 'Alteração de SLA', 'SLA alterado com justificativa.',
-      String(previousSla) + 'h', String(slaHours) + 'h', actor.nome, safeJustification);
+    insertTimeline_(safeId, isFinalStatus_(input.status) ? 'Encerramento' : 'Mudança de status',
+      'Status alterado.', oldRecord.Status, statusLabel_(input.status, input.motivoPendencia),
+      actor.nome, safeJustification);
   }
   if (String(oldRecord.Responsavel || '') !== String(input.responsavel || '')) {
     insertTimeline_(safeId, 'Alteração de responsável', 'Responsável alterado.',
       oldRecord.Responsavel, input.responsavel, actor.nome, safeJustification);
   }
-  if (newWaiting && (!oldWaiting || statusChanged)) {
-    const waitRecord = Object.assign({}, oldRecord, updates);
-    insertWaitTimeline_(waitRecord, 'Espera iniciada', now, 0, actor.nome);
+
+  return { success: true, id: safeId };
+}
+
+/**
+ * Alteração rápida de status feita diretamente pelo Dashboard (Analista ou
+ * Supervisor). Não exige justificativa e altera apenas Status + Situação.
+ */
+function alterarStatusAtendimento(id, status, situacao) {
+  ensureDatabaseReady();
+  const safeId = sanitizeInput(id);
+  const record = getById(CONFIG.SHEET_NAMES.ATENDIMENTOS, safeId);
+  if (!record || isTrue_(record.Excluido)) throw new Error('Atendimento não encontrado.');
+
+  const actor = getActor_();
+  if (!canAccessAtendimento_(record, actor)) {
+    throw new Error('Você não tem permissão para alterar este atendimento.');
   }
+
+  const newStatus = sanitizeInput(status);
+  const newSituacao = sanitizeInput(situacao);
+  assertValidStatus_(newStatus, newSituacao);
+
+  const now = new Date();
+  const opening = asDate_(record.DataAbertura) || now;
+  const resolution = resolveResolution_(record, newStatus, opening, now);
+  const statusChanged = normalizeText_(record.Status) !== normalizeText_(newStatus);
+  const situacaoChanged = normalizeText_(record.MotivoPendencia) !== normalizeText_(newSituacao);
+
+  if (!statusChanged && !situacaoChanged) return { success: true, id: safeId };
+
+  updateAtendimentoUnique_(safeId, {
+    Status: newStatus,
+    MotivoPendencia: isFinalStatus_(newStatus) ? '' : newSituacao,
+    DataResolucao: resolution.date,
+    TempoResolucaoHoras: resolution.hours,
+    AtualizadoPor: actor.nome,
+    DataAtualizacao: now
+  });
+
+  insertTimeline_(safeId, isFinalStatus_(newStatus) ? 'Encerramento' : 'Mudança de status',
+    'Status alterado pelo dashboard.',
+    statusLabel_(record.Status, record.MotivoPendencia),
+    statusLabel_(newStatus, newSituacao),
+    actor.nome, '');
 
   return { success: true, id: safeId };
 }
@@ -475,6 +395,9 @@ function adicionarObservacao(atendimentoId, texto) {
   if (!record || isTrue_(record.Excluido)) throw new Error('Atendimento não encontrado.');
 
   const actor = getActor_();
+  if (!canAccessAtendimento_(record, actor)) {
+    throw new Error('Você não tem permissão para alterar este atendimento.');
+  }
   insertTimeline_(id, 'Observação', observation, '', '', actor.nome, '');
   update(CONFIG.SHEET_NAMES.ATENDIMENTOS, id, {
     AtualizadoPor: actor.nome,
@@ -488,31 +411,21 @@ function validateAtendimentoInput_(dados) {
     numeroRA: sanitizeInput(dados.numeroRA),
     cliente: sanitizeInput(dados.cliente),
     cpf: sanitizeInput(dados.cpf),
-    telefone: sanitizeInput(dados.telefone),
-    email: sanitizeInput(dados.email),
     produto: sanitizeInput(dados.produto),
     categoria: sanitizeInput(dados.categoria),
     canal: sanitizeInput(dados.canal),
-    tipoAtendimento: sanitizeInput(dados.tipoAtendimento) || 'Reclamação',
     responsavel: sanitizeInput(dados.responsavel),
-    prioridade: sanitizeInput(dados.prioridade),
     status: sanitizeInput(dados.status),
-    descricao: sanitizeInput(dados.descricao),
     observacoes: sanitizeInput(dados.observacoes),
     dataAbertura: sanitizeInput(dados.dataAbertura),
-    dataPrevista: sanitizeInput(dados.dataPrevista),
-    slaHoras: sanitizeInput(dados.slaHoras),
-    motivoPendencia: sanitizeInput(dados.motivoPendencia),
-    subcategoria: sanitizeInput(dados.subcategoria),
-    assunto: sanitizeInput(dados.assunto),
-    resolucao: sanitizeInput(dados.resolucao),
-    notaConsumidor: sanitizeInput(dados.notaConsumidor),
-    avaliacao: sanitizeInput(dados.avaliacao)
+    motivoPendencia: sanitizeInput(dados.motivoPendencia)
   };
 
   const required = {
-    numeroRA: 'Protocolo',
-    cliente: 'Nome',
+    numeroRA: 'Protocolo Odin',
+    cliente: 'Nome do cliente',
+    cpf: 'CPF',
+    dataAbertura: 'Data',
     produto: 'Produto',
     canal: 'Canal',
     status: 'Status'
@@ -521,35 +434,59 @@ function validateAtendimentoInput_(dados) {
     if (!input[key]) throw new Error(required[key] + ' é obrigatório.');
   });
 
-  if (input.cpf && !validateCPF(input.cpf)) throw new Error('CPF inválido.');
-  if (input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) throw new Error('E-mail inválido.');
-  if (input.slaHoras && (!isFinite(Number(input.slaHoras)) || Number(input.slaHoras) <= 0 || Number(input.slaHoras) > 8760)) {
-    throw new Error('O SLA deve ser um número entre 1 e 8760 horas.');
-  }
-  if (isWaitingStatus_(input.status) && !input.motivoPendencia) {
-    throw new Error('"Aguardando Retorno de" é obrigatório quando o Status é "Pendente".');
-  }
+  if (!validateCPF(input.cpf)) throw new Error('CPF inválido.');
+  assertValidStatus_(input.status, input.motivoPendencia);
+  if (isFinalStatus_(input.status)) input.motivoPendencia = '';
 
-  // Todos os atendimentos da célula de Reclame Aqui são tratados como
-  // Urgentes automaticamente — o usuário nunca escolhe nem vê a prioridade.
-  input.prioridade = 'Urgente';
-
-  input.cpf = input.cpf ? formatCPF(input.cpf) : '';
+  input.cpf = formatCPF(input.cpf);
   return input;
 }
 
-function assertUniqueNumeroRA_(numeroRA, ignoredId) {
-  const normalized = normalizeText_(numeroRA);
-  const duplicate = getActiveAtendimentos_().some(function(record) {
-    return String(record.Id) !== String(ignoredId || '') &&
-      normalizeText_(record.NumeroRA) === normalized;
+/**
+ * Garante que o status é um dos valores fixos e que a situação da
+ * pendência foi informada (e é válida) quando o status é "Pendente".
+ */
+function assertValidStatus_(status, situacao) {
+  const validStatus = STATUS_LIST.some(function(item) {
+    return normalizeText_(item.Nome) === normalizeText_(status);
   });
-  if (duplicate) throw new Error('Já existe um atendimento com este Número RA.');
+  if (!validStatus) throw new Error('Status inválido. Utilize "Pendente" ou "Concluído".');
+
+  if (isWaitingStatus_(status)) {
+    const validSituacao = SITUACOES_PENDENCIA.some(function(item) {
+      return normalizeText_(item) === normalizeText_(situacao);
+    });
+    if (!validSituacao) {
+      throw new Error('Informe a situação da pendência quando o status for "Pendente".');
+    }
+  }
 }
 
 /**
- * Escritas atômicas do atendimento: a verificação de Número RA e a gravação
- * acontecem sob o mesmo lock para impedir duplicidades em requisições paralelas.
+ * Calcula DataResolucao/TempoResolucaoHoras conforme a transição de status.
+ */
+function resolveResolution_(oldRecord, newStatus, opening, now) {
+  const wasFinal = isFinalStatus_(oldRecord.Status);
+  const isFinal = isFinalStatus_(newStatus);
+  if (isFinal && !wasFinal) {
+    return { date: now, hours: roundHours_(diffInHours(opening, now)) };
+  }
+  if (!isFinal && wasFinal) {
+    return { date: '', hours: '' };
+  }
+  return { date: oldRecord.DataResolucao, hours: oldRecord.TempoResolucaoHoras };
+}
+
+function statusLabel_(status, situacao) {
+  return situacao && isWaitingStatus_(status)
+    ? status + ' (' + situacao + ')'
+    : String(status || '');
+}
+
+/**
+ * Escritas atômicas do atendimento: a verificação de Protocolo Odin e a
+ * gravação acontecem sob o mesmo lock para impedir duplicidades em
+ * requisições paralelas.
  */
 function insertAtendimentoUnique_(record) {
   const lock = LockService.getScriptLock();
@@ -570,7 +507,9 @@ function updateAtendimentoUnique_(id, updates) {
   try {
     lock.waitLock(CONFIG.LOCK_TIMEOUT_MS);
     const sheet = getSpreadsheet().getSheetByName(CONFIG.SHEET_NAMES.ATENDIMENTOS);
-    assertUniqueNumeroRAInSheet_(sheet, updates.NumeroRA, id);
+    if (updates.NumeroRA !== undefined) {
+      assertUniqueNumeroRAInSheet_(sheet, updates.NumeroRA, id);
+    }
     const rowIndex = findRowById(sheet, id);
     if (rowIndex === -1) throw new Error('Atendimento não encontrado.');
     const currentRow = sheet.getRange(rowIndex, 1, 1, COLUMNS.ATENDIMENTOS.length).getValues()[0];
@@ -596,130 +535,25 @@ function assertUniqueNumeroRAInSheet_(sheet, numeroRA, ignoredId) {
       !isTrue_(row[deletedIndex]) &&
       normalizeText_(row[raIndex]) === normalized;
   });
-  if (duplicate) throw new Error('Já existe um atendimento com este Número RA.');
+  if (duplicate) throw new Error('Já existe um atendimento com este Protocolo Odin.');
 }
 
 // ============================================================================
-// SLA E CONTROLE DE ESPERA
+// STATUS (regras fixas do fluxo)
 // ============================================================================
-
-function calcularSLA(produto, categoria, canal, tipoAtendimento, prioridade) {
-  ensureDatabaseReady();
-  return resolveSLA_(
-    sanitizeInput(produto),
-    sanitizeInput(categoria),
-    sanitizeInput(canal),
-    sanitizeInput(tipoAtendimento),
-    sanitizeInput(prioridade),
-    new Date()
-  );
-}
-
-function calcularVencimentoSLA(dataAbertura, horas) {
-  const start = parseInputDate_(dataAbertura, false) || new Date();
-  const slaHours = Number(horas);
-  if (!isFinite(slaHours) || slaHours <= 0 || slaHours > 8760) {
-    throw new Error('Quantidade de horas de SLA inválida.');
-  }
-  return { dataVencimento: toIso_(addBusinessHours(start, slaHours)) };
-}
-
-function resolveSLA_(produto, categoria, canal, tipoAtendimento, prioridade, startDate) {
-  const produtos = getAll(CONFIG.SHEET_NAMES.PRODUTOS);
-  const categorias = getAll(CONFIG.SHEET_NAMES.CATEGORIAS);
-  const canais = getAll(CONFIG.SHEET_NAMES.CANAIS);
-  const tipos = getAll(CONFIG.SHEET_NAMES.TIPOS_ATENDIMENTO);
-  const prioridades = getAll(CONFIG.SHEET_NAMES.PRIORIDADES);
-  const produtoId = findIdByName_(produtos, produto);
-  const categoriaId = findIdByName_(categorias, categoria);
-  const canalId = findIdByName_(canais, canal);
-  const tipoId = findIdByName_(tipos, tipoAtendimento);
-  const settings = getRuntimeSettings_();
-
-  let bestRule = null;
-  let bestScore = -1;
-  getAll(CONFIG.SHEET_NAMES.SLAS).forEach(function(rule) {
-    if (!isTrue_(rule.Ativo)) return;
-    const criteria = [
-      ['ProdutoId', produtoId],
-      ['CategoriaId', categoriaId],
-      ['TipoAtendimentoId', tipoId],
-      ['CanalId', canalId]
-    ];
-    let score = 0;
-    let matches = true;
-    criteria.forEach(function(pair) {
-      const ruleValue = String(rule[pair[0]] || '');
-      if (!ruleValue) return;
-      if (ruleValue !== String(pair[1] || '')) matches = false;
-      else score++;
-    });
-    if (matches && score > bestScore) {
-      bestRule = rule;
-      bestScore = score;
-    }
-  });
-
-  let hours = Number(bestRule && bestRule.Horas ? bestRule.Horas : settings.defaultSlaHours);
-  const priority = prioridades.find(function(item) {
-    return normalizeText_(item.Nome) === normalizeText_(prioridade);
-  });
-  if (priority && Number(priority.SLAMultiplicador) > 0) {
-    hours = hours * Number(priority.SLAMultiplicador);
-  }
-  hours = Math.max(1, Math.round(hours * 100) / 100);
-  const due = addBusinessHours(startDate || new Date(), hours);
-
-  return {
-    slaHoras: hours,
-    dataVencimento: toIso_(due),
-    regraId: bestRule ? bestRule.Id : '',
-    origem: bestRule ? 'Configurado' : 'Padrão'
-  };
-}
-
-function calculateSLAStatus_(dueValue, comparisonValue, alertHours) {
-  const due = asDate_(dueValue);
-  const comparison = asDate_(comparisonValue) || new Date();
-  if (!due) return 'Não definido';
-  if (comparison > due) return 'SLA vencido';
-  if (isSameDay(due, comparison)) return 'Vence hoje';
-
-  const remaining = calculateBusinessHours(comparison, due);
-  const threshold = Number(alertHours || getRuntimeSettings_().slaAlertHours);
-  return remaining <= threshold
-    ? 'Próximo do vencimento'
-    : 'Dentro do prazo';
-}
 
 function isWaitingStatus_(statusName) {
-  const status = normalizeText_(statusName);
-  if (!status) return false;
-  const configured = getStatusConfigMap_()[status];
-  return configured ? normalizeText_(configured.Tipo) === 'espera' : status.indexOf('pendente') !== -1;
+  return normalizeText_(statusName) === 'pendente';
 }
 
 function isFinalStatus_(statusName) {
-  const normalized = normalizeText_(statusName);
-  const configured = getStatusConfigMap_()[normalized];
-  if (configured) return normalizeText_(configured.Tipo) === 'final';
-  return ['resolvido', 'finalizado', 'cancelado', 'improcedente', 'concluido'].indexOf(normalized) !== -1;
+  return normalizeText_(statusName) === 'concluido';
 }
 
-function insertWaitTimeline_(record, type, date, elapsedHours, userName) {
-  const status = String(record.Status || '');
-  const group = normalizeText_(status).indexOf('cliente') !== -1 ? 'Cliente' : 'Área';
-  const details = JSON.stringify({
-    grupo: group,
-    status: status,
-    motivo: String(record.MotivoPendencia || ''),
-    responsavel: String(record.Responsavel || ''),
-    horas: Math.round(Number(elapsedHours || 0) * 100) / 100
-  });
-  const description = type === 'Espera iniciada'
-    ? 'Espera iniciada: ' + status + '. Motivo: ' + (record.MotivoPendencia || 'não informado') + '.'
-    : 'Espera finalizada após ' + Number(elapsedHours || 0).toFixed(1) + ' hora(s).';
-  insertTimeline_(record.Id, type, description, '', '', userName, details, date);
+function getStatusColorMap_() {
+  const map = {};
+  STATUS_LIST.forEach(function(item) { map[item.Nome] = item.Cor; });
+  return map;
 }
 
 // ============================================================================
@@ -763,8 +597,7 @@ function insertTimeline_(atendimentoId, tipo, descricao, de, para, usuario, deta
 }
 
 function buildChangeHistory_(atendimentoId, oldRecord, updates, userName, justification) {
-  const ignored = ['AtualizadoPor', 'DataAtualizacao', 'StatusSLA', 'DataInicioEspera',
-    'TempoEsperaAcumulado', 'DataResolucao', 'TempoResolucaoHoras'];
+  const ignored = ['AtualizadoPor', 'DataAtualizacao', 'DataResolucao', 'TempoResolucaoHoras'];
   const entries = [];
   Object.keys(updates).forEach(function(field) {
     if (ignored.indexOf(field) !== -1) return;
@@ -787,161 +620,46 @@ function buildChangeHistory_(atendimentoId, oldRecord, updates, userName, justif
 }
 
 // ============================================================================
-// DASHBOARD, ALERTAS E INDICADORES
+// DASHBOARD
 // ============================================================================
 
-function getDashboardData(filtros) {
+/**
+ * Retorna, em UMA única chamada, tudo o que o Dashboard precisa:
+ * cartões de resumo + lista de atendimentos do usuário (Analista vê só os
+ * seus; Supervisor vê todos). Evita múltiplas idas ao servidor e telas de
+ * carregamento em sequência.
+ */
+function getDashboardData() {
   ensureDatabaseReady();
-  const raw = applyAtendimentoFilters_(getActiveAtendimentos_(), filtros || {});
+  const actor = getActor_();
+  const raw = restrictToOwnerIfNeeded_(getActiveAtendimentos_(), actor);
   const records = decorateAtendimentos_(raw);
-  const today = new Date();
-  const settings = getRuntimeSettings_();
+  sortClientRecords_(records, { campo: 'dataAbertura', direcao: 'desc' });
 
-  let pendentes = 0;
-  let emAnalise = 0;
-  let concluidos = 0;
-  let pendentesAguardandoArea = 0;
-  let pendentesAguardandoCliente = 0;
-  const alerts = [];
+  const cards = {
+    totalAtendimentos: records.length,
+    pendentes: 0,
+    concluidos: 0
+  };
+  const porSituacao = {};
+  SITUACOES_PENDENCIA.forEach(function(situacao) { porSituacao[situacao] = 0; });
 
-  raw.forEach(function(record, index) {
-    const client = records[index];
-    const waiting = isWaitingStatus_(record.Status);
-    const finalStatus = isFinalStatus_(record.Status);
-    const waitingClient = normalizeText_(record.MotivoPendencia).indexOf('cliente') !== -1;
-
-    if (waiting) {
-      pendentes++;
-      if (waitingClient) pendentesAguardandoCliente++;
-      else pendentesAguardandoArea++;
-    } else if (finalStatus) {
-      concluidos++;
+  records.forEach(function(record) {
+    if (isFinalStatus_(record.status)) {
+      cards.concluidos++;
     } else {
-      emAnalise++;
-    }
-
-    if (!finalStatus && normalizeText_(client.slaStatus) === 'sla vencido') {
-      alerts.push({
-        tipo: 'SLA Vencido',
-        mensagem: 'RA ' + record.NumeroRA + ' está com o SLA vencido.',
-        atendimentoId: record.Id,
-        prioridade: record.Prioridade
-      });
-    } else if (!finalStatus && normalizeText_(client.slaStatus) === 'vence hoje') {
-      alerts.push({
-        tipo: 'SLA Próximo',
-        mensagem: 'RA ' + record.NumeroRA + ' vence hoje.',
-        atendimentoId: record.Id,
-        prioridade: record.Prioridade
-      });
-    }
-
-    if (waiting && record.DataInicioEspera) {
-      const hours = Math.max(0, diffInHours(record.DataInicioEspera, today));
-      const exceeded = waitingClient
-        ? hours >= settings.waitClientDays * 24
-        : hours >= settings.waitAreaHours;
-      if (exceeded) {
-        alerts.push({
-          tipo: 'Aguardando',
-          mensagem: 'RA ' + record.NumeroRA + ' aguarda ' +
-            (waitingClient ? 'o cliente' : 'uma área') + ' há ' + Math.floor(hours) + 'h.',
-          atendimentoId: record.Id,
-          prioridade: record.Prioridade
-        });
+      cards.pendentes++;
+      if (porSituacao[record.situacaoPendencia] !== undefined) {
+        porSituacao[record.situacaoPendencia]++;
       }
     }
   });
 
-  const cards = {
-    totalAtendimentos: records.length,
-    pendentes: pendentes,
-    emAnalise: emAnalise,
-    concluidos: concluidos,
-    pendentesAguardandoArea: pendentesAguardandoArea,
-    pendentesAguardandoCliente: pendentesAguardandoCliente
-  };
-
-  writeDashboardSnapshot_(cards);
-  return { cards: cards, alertas: alerts.slice(0, 100) };
-}
-
-function getIndicadores(filtros) {
-  ensureDatabaseReady();
-  const raw = applyAtendimentoFilters_(getActiveAtendimentos_(), filtros || {});
-  const records = decorateAtendimentos_(raw);
-  const waitMetrics = getWaitMetrics_(raw.map(function(item) { return String(item.Id); }));
-
-  const byDay = groupCount_(records, function(item) {
-    const date = asDate_(item.dataAbertura);
-    return date ? Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '';
-  }, function(key) {
-    const parts = key.split('-');
-    return parts[2] + '/' + parts[1] + '/' + parts[0];
-  }, 30);
-
-  const byWeek = groupCount_(records, function(item) {
-    const date = asDate_(item.dataAbertura);
-    return date ? date.getFullYear() + '-W' + String(getWeekNumber(date)).padStart(2, '0') : '';
-  }, function(key) {
-    const parts = key.split('-W');
-    return 'S' + parts[1] + '/' + parts[0];
-  }, 20);
-
-  const byMonth = groupCount_(records, function(item) {
-    const date = asDate_(item.dataAbertura);
-    return date ? Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM') : '';
-  }, monthLabel_, 24);
-
-  const finalRecords = records.filter(function(item) { return isFinalStatus_(item.status); });
-  const resolutionByAnalyst = groupAverage_(finalRecords, 'responsavel', 'tempoResolucao');
-  const evolution = buildMonthlyEvolution_(records);
-
   return {
-    atendimentosPorDia: byDay,
-    atendimentosPorSemana: byWeek,
-    atendimentosPorMes: byMonth,
-    atendimentosPorAnalista: groupCountByField_(records, 'responsavel'),
-    atendimentosPorProduto: groupCountByField_(records, 'produto'),
-    atendimentosPorCategoria: groupCountByField_(records, 'categoria'),
-    statusAtendimentos: groupCountByField_(records, 'status'),
-    slaDentroFora: {
-      labels: ['Dentro do prazo', 'Fora do prazo'],
-      values: [
-        records.filter(function(item) { return normalizeText_(item.slaStatus) !== 'sla vencido'; }).length,
-        records.filter(function(item) { return normalizeText_(item.slaStatus) === 'sla vencido'; }).length
-      ]
-    },
-    tempoMedioResolucao: resolutionByAnalyst,
-    volumePorCanal: groupCountByField_(records, 'canal'),
-    evolucaoMensal: evolution,
-    rankingAnalistas: groupCountByField_(finalRecords, 'responsavel'),
-    tempoMedioAguardandoArea: waitMetrics.area,
-    tempoMedioAguardandoCliente: waitMetrics.cliente
-  };
-}
-
-function getWaitMetrics_(allowedIds) {
-  const allowed = {};
-  allowedIds.forEach(function(id) { allowed[id] = true; });
-  const sums = { area: 0, cliente: 0 };
-  const counts = { area: 0, cliente: 0 };
-
-  getAll(CONFIG.SHEET_NAMES.TIMELINE).forEach(function(item) {
-    if (!allowed[String(item.AtendimentoId)] || item.Tipo !== 'Espera finalizada' || !item.Detalhes) return;
-    try {
-      const details = JSON.parse(item.Detalhes);
-      const key = normalizeText_(details.grupo) === 'cliente' ? 'cliente' : 'area';
-      sums[key] += Number(details.horas || 0);
-      counts[key]++;
-    } catch (e) {
-      // Registros antigos sem JSON permanecem válidos, apenas não entram na média.
-    }
-  });
-
-  return {
-    area: counts.area ? Math.round((sums.area / counts.area) * 10) / 10 : 0,
-    cliente: counts.cliente ? Math.round((sums.cliente / counts.cliente) * 10) / 10 : 0
+    cards: cards,
+    porSituacao: porSituacao,
+    atendimentos: records,
+    user: actor
   };
 }
 
@@ -951,27 +669,14 @@ function getWaitMetrics_(allowedIds) {
 
 function getRelatorio(filtros) {
   ensureDatabaseReady();
-  const records = decorateAtendimentos_(
-    applyAtendimentoFilters_(getActiveAtendimentos_(), filtros || {})
+  const actor = getActor_();
+  return decorateAtendimentos_(
+    applyAtendimentoFilters_(restrictToOwnerIfNeeded_(getActiveAtendimentos_(), actor), filtros || {})
   );
-
-  try {
-    insert(CONFIG.SHEET_NAMES.RELATORIOS, {
-      Id: generateId('REL'),
-      Tipo: 'Atendimentos',
-      Filtros: JSON.stringify(filtros || {}),
-      GeradoPor: getActor_().nome,
-      DataGeracao: new Date(),
-      Quantidade: records.length
-    });
-  } catch (e) {
-    Logger.log('Não foi possível registrar a geração do relatório: ' + e.message);
-  }
-  return records;
 }
 
 // ============================================================================
-// CONFIGURAÇÕES ADMINISTRÁVEIS
+// CONFIGURAÇÕES ADMINISTRÁVEIS (Produtos, Categorias, Usuários)
 // ============================================================================
 
 function getConfiguracoes() {
@@ -998,37 +703,27 @@ function salvarConfiguracao(entidade, dados, id) {
     if (column === 'Id') return;
     if (input[column] === undefined) return;
     if (column === 'Ativo') record[column] = isTrue_(input[column]);
-    else if (column === 'Ordem' || column === 'Horas' || column === 'SLAMultiplicador') {
+    else if (column === 'Ordem') {
       record[column] = input[column] === '' ? '' : Number(input[column]);
     } else {
       record[column] = sanitizeInput(input[column]);
     }
   });
 
-  if (meta.columns.indexOf('Nome') !== -1 && !record.Nome) throw new Error('Nome é obrigatório.');
-  if (meta.key === 'configuracoes' && !record.Chave) throw new Error('Chave é obrigatória.');
-  if (meta.key === 'slas' && (!record.Horas || Number(record.Horas) <= 0)) {
-    throw new Error('Informe uma quantidade válida de horas.');
-  }
+  if (!record.Nome) throw new Error('Nome é obrigatório.');
   if (meta.key === 'usuarios' && record.Email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(record.Email)) {
     throw new Error('E-mail inválido.');
-  }
-  if (record.Cor && !/^#[0-9a-f]{6}$/i.test(record.Cor)) {
-    throw new Error('Cor inválida. Utilize o formato hexadecimal #RRGGBB.');
-  }
-  if (meta.key === 'status' && ['Inicial', 'Espera', 'Intermediario', 'Final'].indexOf(record.Tipo) === -1) {
-    throw new Error('Tipo de status inválido.');
   }
   if (meta.key === 'usuarios' && ['Analista', 'Supervisor'].indexOf(record.Perfil) === -1) {
     throw new Error('Perfil de usuário inválido.');
   }
-  if (meta.key === 'configuracoes' && !/^[A-Z0-9_]+$/.test(record.Chave)) {
-    throw new Error('A chave deve conter apenas letras maiúsculas, números e sublinhado.');
+  if (meta.key === 'categorias' && record.ProdutoId &&
+      !getById(CONFIG.SHEET_NAMES.PRODUTOS, record.ProdutoId)) {
+    throw new Error('Produto informado para a categoria não existe.');
   }
-  validateConfigurationReferences_(meta.key, record);
 
   let recordId = sanitizeInput(id);
-  const exists = recordId ? findConfigRecord_(meta, recordId) : null;
+  const exists = recordId ? getById(meta.sheet, recordId) : null;
   if (meta.key === 'usuarios' && exists && isTrue_(exists.Ativo) &&
       normalizeText_(exists.Perfil) === 'supervisor' &&
       (!isTrue_(record.Ativo) || normalizeText_(record.Perfil) !== 'supervisor')) {
@@ -1037,12 +732,8 @@ function salvarConfiguracao(entidade, dados, id) {
   if (exists) {
     update(meta.sheet, recordId, record);
   } else {
-    if (meta.columns.indexOf('Id') !== -1) {
-      record.Id = recordId || generateId(meta.prefix);
-      recordId = record.Id;
-    } else {
-      recordId = record.Chave;
-    }
+    record.Id = recordId || generateId(meta.prefix);
+    recordId = record.Id;
     if (meta.key === 'usuarios') {
       record.DataCadastro = record.DataCadastro || new Date();
     }
@@ -1062,17 +753,14 @@ function excluirConfiguracao(entidade, id) {
   const meta = entities[sanitizeInput(entidade)];
   if (!meta) throw new Error('Tipo de configuração inválido.');
   const safeId = sanitizeInput(id);
-  const existing = findConfigRecord_(meta, safeId);
+  const existing = getById(meta.sheet, safeId);
   if (!existing) throw new Error('Registro não encontrado.');
   if (meta.key === 'usuarios' && isTrue_(existing.Ativo) && normalizeText_(existing.Perfil) === 'supervisor') {
     assertAnotherSupervisor_(safeId);
   }
 
-  if (meta.columns.indexOf('Ativo') !== -1) {
-    update(meta.sheet, safeId, { Ativo: false });
-  } else {
-    remove(meta.sheet, safeId);
-  }
+  // Desativação lógica preserva o histórico dos atendimentos já vinculados.
+  update(meta.sheet, safeId, { Ativo: false });
   auditConfiguration_('Desativação', meta.label, safeId, existing);
   invalidateAllCache();
   SERVICE_CONTEXT_ = {};
@@ -1089,44 +777,11 @@ function getConfigurationEntities_() {
       key: 'categorias', label: 'Categorias', sheet: CONFIG.SHEET_NAMES.CATEGORIAS,
       columns: COLUMNS.CATEGORIAS, prefix: 'CT'
     },
-    status: {
-      key: 'status', label: 'Status', sheet: CONFIG.SHEET_NAMES.STATUS_CONFIG,
-      columns: COLUMNS.STATUS_CONFIG, prefix: 'ST'
-    },
-    prioridades: {
-      key: 'prioridades', label: 'Prioridades', sheet: CONFIG.SHEET_NAMES.PRIORIDADES,
-      columns: COLUMNS.PRIORIDADES, prefix: 'PR'
-    },
-    canais: {
-      key: 'canais', label: 'Canais', sheet: CONFIG.SHEET_NAMES.CANAIS,
-      columns: COLUMNS.CANAIS, prefix: 'CN'
-    },
-    tiposAtendimento: {
-      key: 'tiposAtendimento', label: 'Tipos de atendimento', sheet: CONFIG.SHEET_NAMES.TIPOS_ATENDIMENTO,
-      columns: COLUMNS.TIPOS_ATENDIMENTO, prefix: 'TA'
-    },
-    slas: {
-      key: 'slas', label: 'SLAs', sheet: CONFIG.SHEET_NAMES.SLAS,
-      columns: COLUMNS.SLAS, prefix: 'SLA'
-    },
-    motivosPendencia: {
-      key: 'motivosPendencia', label: 'Motivos de pendência', sheet: CONFIG.SHEET_NAMES.MOTIVOS_PENDENCIA,
-      columns: COLUMNS.MOTIVOS_PENDENCIA, prefix: 'MP'
-    },
     usuarios: {
       key: 'usuarios', label: 'Usuários e responsáveis', sheet: CONFIG.SHEET_NAMES.USUARIOS,
       columns: COLUMNS.USUARIOS, prefix: 'USR'
-    },
-    configuracoes: {
-      key: 'configuracoes', label: 'Parâmetros gerais', sheet: CONFIG.SHEET_NAMES.CONFIGURACOES,
-      columns: COLUMNS.CONFIGURACOES, prefix: 'CFG'
     }
   };
-}
-
-function findConfigRecord_(meta, id) {
-  if (meta.columns.indexOf('Id') !== -1) return getById(meta.sheet, id);
-  return getByField(meta.sheet, meta.columns[0], id)[0] || null;
 }
 
 function auditConfiguration_(action, label, id, value) {
@@ -1143,21 +798,6 @@ function auditConfiguration_(action, label, id, value) {
   });
 }
 
-function validateConfigurationReferences_(entity, record) {
-  const references = {
-    ProdutoId: CONFIG.SHEET_NAMES.PRODUTOS,
-    CategoriaId: CONFIG.SHEET_NAMES.CATEGORIAS,
-    TipoAtendimentoId: CONFIG.SHEET_NAMES.TIPOS_ATENDIMENTO,
-    CanalId: CONFIG.SHEET_NAMES.CANAIS
-  };
-  Object.keys(references).forEach(function(field) {
-    if (!record[field]) return;
-    if (!getById(references[field], record[field])) {
-      throw new Error('Referência inválida em ' + field + '.');
-    }
-  });
-}
-
 function assertAnotherSupervisor_(ignoredId) {
   const activeSupervisors = getAll(CONFIG.SHEET_NAMES.USUARIOS).filter(function(user) {
     return String(user.Id) !== String(ignoredId) &&
@@ -1170,57 +810,34 @@ function assertAnotherSupervisor_(ignoredId) {
 }
 
 // ============================================================================
-// CONVERSÃO, AGRUPAMENTO E SEGURANÇA
+// CONVERSÃO E SEGURANÇA
 // ============================================================================
 
 function decorateAtendimentos_(records) {
   const colorMap = getStatusColorMap_();
-  const alertHours = getRuntimeSettings_().slaAlertHours;
   return records.map(function(record) {
-    return toClientAtendimento_(record, colorMap, alertHours);
+    return toClientAtendimento_(record, colorMap);
   });
 }
 
-function toClientAtendimento_(record, colorMap, alertHours) {
-  const deadline = asDate_(record.DataVencimentoSLA);
-  const comparison = record.DataResolucao || new Date();
-  const slaStatus = calculateSLAStatus_(deadline, comparison, alertHours);
-  const remaining = deadline ? diffInHours(new Date(), deadline) : 0;
+function toClientAtendimento_(record, colorMap) {
   return {
     id: String(record.Id || ''),
     numeroRA: String(record.NumeroRA || ''),
+    protocoloOdin: String(record.NumeroRA || ''),
     dataAbertura: toIso_(record.DataAbertura),
-    dataRecebimento: toIso_(record.DataRecebimento),
-    dataPrevista: toIso_(record.DataVencimentoSLA),
     dataConclusao: toIso_(record.DataResolucao),
     canal: String(record.Canal || ''),
-    tipoAtendimento: String(record.TipoAtendimento || ''),
     cliente: String(record.Cliente || ''),
     cpf: String(record.CPF || ''),
-    cpfCnpj: String(record.CPF || ''),
-    telefone: String(record.Telefone || ''),
-    email: String(record.Email || ''),
     produto: String(record.Produto || ''),
     categoria: String(record.Categoria || ''),
-    subcategoria: String(record.Subcategoria || ''),
-    assunto: String(record.Assunto || ''),
-    descricao: String(record.Descricao || ''),
     status: String(record.Status || ''),
     statusCor: colorMap[String(record.Status || '')] || '',
-    prioridade: String(record.Prioridade || ''),
-    responsavel: String(record.Responsavel || ''),
-    slaHoras: Number(record.SLAHoras || 0),
-    slaStatus: slaStatus,
-    sla: slaStatus,
-    horasRestantes: Math.round(remaining * 10) / 10,
-    diasRestantes: Math.round((remaining / 24) * 10) / 10,
-    dataInicioEspera: toIso_(record.DataInicioEspera),
-    tempoEspera: Number(record.TempoEsperaAcumulado || 0),
+    situacaoPendencia: String(record.MotivoPendencia || ''),
     motivoPendencia: String(record.MotivoPendencia || ''),
+    responsavel: String(record.Responsavel || ''),
     tempoResolucao: record.TempoResolucaoHoras === '' ? '' : Number(record.TempoResolucaoHoras || 0),
-    resolucao: String(record.Resolucao || ''),
-    notaConsumidor: record.NotaConsumidor === '' ? '' : Number(record.NotaConsumidor),
-    avaliacao: String(record.Avaliacao || ''),
     observacoes: String(record.Observacoes || ''),
     criadoPor: String(record.CriadoPor || ''),
     dataCriacao: toIso_(record.DataCriacao),
@@ -1229,122 +846,8 @@ function toClientAtendimento_(record, colorMap, alertHours) {
   };
 }
 
-function getStatusColorMap_() {
-  return keyValue_(getAll(CONFIG.SHEET_NAMES.STATUS_CONFIG), 'Nome', 'Cor');
-}
-
-function getStatusConfigMap_() {
-  if (SERVICE_CONTEXT_.statusConfig) return SERVICE_CONTEXT_.statusConfig;
-  const map = {};
-  getAll(CONFIG.SHEET_NAMES.STATUS_CONFIG).forEach(function(item) {
-    map[normalizeText_(item.Nome)] = item;
-  });
-  SERVICE_CONTEXT_.statusConfig = map;
-  return map;
-}
-
-function groupCountByField_(records, field) {
-  const counts = {};
-  records.forEach(function(item) {
-    const key = String(item[field] || 'Não informado');
-    counts[key] = (counts[key] || 0) + 1;
-  });
-  const keys = Object.keys(counts).sort(function(a, b) {
-    return counts[b] - counts[a] || a.localeCompare(b, 'pt-BR');
-  });
-  return { labels: keys, values: keys.map(function(key) { return counts[key]; }) };
-}
-
-function groupCount_(records, keyFn, labelFn, limit) {
-  const counts = {};
-  records.forEach(function(item) {
-    const key = keyFn(item);
-    if (key) counts[key] = (counts[key] || 0) + 1;
-  });
-  let keys = Object.keys(counts).sort();
-  if (limit && keys.length > limit) keys = keys.slice(keys.length - limit);
-  return {
-    labels: keys.map(labelFn || function(key) { return key; }),
-    values: keys.map(function(key) { return counts[key]; })
-  };
-}
-
-function groupAverage_(records, labelField, valueField) {
-  const groups = {};
-  records.forEach(function(item) {
-    const label = String(item[labelField] || 'Não informado');
-    const value = Number(item[valueField]);
-    if (!isFinite(value)) return;
-    if (!groups[label]) groups[label] = { sum: 0, count: 0 };
-    groups[label].sum += value;
-    groups[label].count++;
-  });
-  const labels = Object.keys(groups).sort();
-  return {
-    labels: labels,
-    values: labels.map(function(label) {
-      return Math.round((groups[label].sum / groups[label].count) * 10) / 10;
-    })
-  };
-}
-
-function buildMonthlyEvolution_(records) {
-  const opened = {};
-  const closed = {};
-  records.forEach(function(item) {
-    const start = asDate_(item.dataAbertura);
-    const end = asDate_(item.dataConclusao);
-    if (start) {
-      const key = Utilities.formatDate(start, Session.getScriptTimeZone(), 'yyyy-MM');
-      opened[key] = (opened[key] || 0) + 1;
-    }
-    if (end) {
-      const key = Utilities.formatDate(end, Session.getScriptTimeZone(), 'yyyy-MM');
-      closed[key] = (closed[key] || 0) + 1;
-    }
-  });
-  const keys = Object.keys(Object.assign({}, opened, closed)).sort().slice(-24);
-  return {
-    labels: keys.map(monthLabel_),
-    novos: keys.map(function(key) { return opened[key] || 0; }),
-    finalizados: keys.map(function(key) { return closed[key] || 0; })
-  };
-}
-
-function writeDashboardSnapshot_(cards) {
-  try {
-    const sheet = getSpreadsheet().getSheetByName(CONFIG.SHEET_NAMES.DASHBOARD);
-    if (!sheet) return;
-    const now = new Date();
-    const rows = Object.keys(cards).map(function(key) {
-      return [key, cards[key], now];
-    });
-    if (sheet.getLastRow() > 1) {
-      sheet.getRange(2, 1, sheet.getLastRow() - 1, COLUMNS.DASHBOARD.length).clearContent();
-    }
-    if (rows.length) sheet.getRange(2, 1, rows.length, COLUMNS.DASHBOARD.length).setValues(rows);
-    invalidateCache(CONFIG.SHEET_NAMES.DASHBOARD);
-  } catch (e) {
-    Logger.log('Não foi possível atualizar o snapshot do dashboard: ' + e.message);
-  }
-}
-
-function getRuntimeSettings_() {
-  if (SERVICE_CONTEXT_.runtimeSettings) return SERVICE_CONTEXT_.runtimeSettings;
-  const values = {};
-  getAll(CONFIG.SHEET_NAMES.CONFIGURACOES).forEach(function(item) {
-    values[String(item.Chave || '')] = item.Valor;
-  });
-  SERVICE_CONTEXT_.runtimeSettings = {
-    defaultSlaHours: positiveNumber_(values.SLA_PADRAO_HORAS, CONFIG.DEFAULT_SLA_HOURS),
-    slaAlertHours: positiveNumber_(values.ALERTA_SLA_HORAS, CONFIG.SLA_ALERT_HOURS),
-    waitAreaHours: positiveNumber_(values.ALERTA_ESPERA_AREA_HORAS, CONFIG.ESPERA_AREA_ALERT_HOURS),
-    waitClientDays: positiveNumber_(values.ALERTA_ESPERA_CLIENTE_DIAS, CONFIG.ESPERA_CLIENTE_ALERT_DAYS)
-  };
-  return SERVICE_CONTEXT_.runtimeSettings;
-}
-
 function getActor_() {
+  if (SERVICE_CONTEXT_.actor) return SERVICE_CONTEXT_.actor;
   let email = '';
   try {
     email = Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || '';
@@ -1358,13 +861,14 @@ function getActor_() {
   if (!user && !email) {
     user = users.find(function(item) { return isTrue_(item.Ativo); });
   }
-  return {
+  SERVICE_CONTEXT_.actor = {
     id: user ? String(user.Id || '') : '',
     email: email,
     nome: user ? String(user.Nome || '') : (email ? email.split('@')[0] : 'Usuário'),
     perfil: user ? String(user.Perfil || 'Analista') : 'Analista',
     equipe: user ? String(user.Equipe || '') : ''
   };
+  return SERVICE_CONTEXT_.actor;
 }
 
 function requireSupervisor_() {
@@ -1407,6 +911,10 @@ function restrictToOwnerIfNeeded_(records, actor) {
   });
 }
 
+// ============================================================================
+// AUXILIARES DE DATA E VALORES
+// ============================================================================
+
 function parseInputDate_(value, endOfDay) {
   if (!value) return null;
   if (value instanceof Date) return new Date(value.getTime());
@@ -1417,7 +925,7 @@ function parseInputDate_(value, endOfDay) {
       Number(match[1]),
       Number(match[2]) - 1,
       Number(match[3]),
-      endOfDay ? 23 : CONFIG.BUSINESS_HOUR_START,
+      endOfDay ? 23 : 0,
       endOfDay ? 59 : 0,
       endOfDay ? 59 : 0,
       endOfDay ? 999 : 0
@@ -1436,6 +944,10 @@ function asDate_(value) {
 function toIso_(value) {
   const date = asDate_(value);
   return date ? date.toISOString() : '';
+}
+
+function roundHours_(hours) {
+  return Math.round(Number(hours || 0) * 100) / 100;
 }
 
 function comparableValue_(value) {
@@ -1467,19 +979,6 @@ function isTrue_(value) {
     ['true', 'sim', '1', 'ativo'].indexOf(normalizeText_(value)) !== -1;
 }
 
-function positiveNumber_(value, fallback) {
-  const number = Number(value);
-  return isFinite(number) && number > 0 ? number : fallback;
-}
-
-function findIdByName_(items, name) {
-  const normalized = normalizeText_(name);
-  const found = items.find(function(item) {
-    return normalizeText_(item.Nome) === normalized;
-  });
-  return found ? String(found.Id || '') : '';
-}
-
 function indexBy_(items, field) {
   const index = {};
   items.forEach(function(item) { index[String(item[field] || '')] = item; });
@@ -1488,17 +987,4 @@ function indexBy_(items, field) {
 
 function pluck_(items, field) {
   return items.map(function(item) { return String(item[field] || ''); }).filter(function(value) { return value; });
-}
-
-function keyValue_(items, keyField, valueField) {
-  const result = {};
-  items.forEach(function(item) {
-    result[String(item[keyField] || '')] = String(item[valueField] || '');
-  });
-  return result;
-}
-
-function monthLabel_(key) {
-  const parts = String(key).split('-');
-  return parts.length === 2 ? parts[1] + '/' + parts[0] : key;
 }

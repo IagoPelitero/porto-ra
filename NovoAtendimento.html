@@ -3,36 +3,25 @@
    Pages.novoAtendimento — Cadastro e edição de atendimentos
    ------------------------------------------------------------
    GUIA PARA QUEM ESTÁ COMEÇANDO
-   Esta é a tela de formulário usada tanto para CRIAR um atendimento novo
-   quanto para EDITAR um já existente. Qual dos dois modos está ativo
-   depende do parâmetro "atendimentoId" recebido em render(): se vier um
-   id, a tela carrega os dados desse atendimento; se vier vazio/nulo, a
-   tela abre em branco para um cadastro novo.
+   Tela de formulário usada tanto para CRIAR quanto para EDITAR um
+   atendimento. Se render() recebe um id, carrega o atendimento; se não,
+   abre em branco.
 
-   Campos do formulário: Data, Protocolo, Nome, CPF, Produto, Canal, Status,
-   "Aguardando Retorno de" (só visível quando Status = "Pendente") e
-   Observações. O campo "Responsável" só aparece para o perfil Supervisor
-   (analista nunca escolhe responsável — o sistema identifica
-   automaticamente quem criou o atendimento, em Services.gs/getActor_()).
+   Campos: Protocolo Odin, CPF, Nome do cliente, Data, Produto, Categoria
+   (dependente do produto), Canal, Status (Pendente/Concluído), Situação
+   da pendência (só quando Pendente) e Observações. O campo "Responsável"
+   só aparece para o perfil Supervisor, que pode delegar o atendimento a
+   um analista — o analista nunca escolhe responsável (o servidor
+   identifica automaticamente quem criou; Services.gs/getActor_()).
 
-   Funções que começam com "_" são de uso interno da própria página.
    Fluxo resumido:
-     render(id)                 → se tiver id, busca o atendimento no
-                                   servidor; depois chama _renderForm().
-     _renderForm(container)      → desenha todos os campos do formulário.
-     _bindEvents()                → liga os eventos dos campos (mudar
-                                   status mostra/esconde "Aguardando
-                                   Retorno de").
-     _validarFormulario()         → confere se os campos obrigatórios
-                                   foram preenchidos antes de salvar.
-     _coletarDados()              → junta os valores dos campos da tela
-                                   em um objeto para enviar ao servidor.
-     _salvar()                    → chama salvarAtendimento() ou
-                                   atualizarAtendimento() (Services.gs),
-                                   dependendo se é um cadastro novo ou
-                                   uma edição.
-     _adicionarObservacao()       → registra uma nova observação na
-                                   timeline do atendimento.
+     render(id)          → busca o atendimento (se edição) e desenha.
+     _renderForm()       → desenha os campos.
+     _bindEvents()       → eventos (status ↔ situação, produto ↔ categoria,
+                           máscara/validação de CPF, duplicidade de protocolo).
+     _validarFormulario()→ confere obrigatórios antes de salvar.
+     _coletarDados()     → junta os valores num objeto para o servidor.
+     _salvar()           → salvarAtendimento()/atualizarAtendimento().
    ============================================================ */
 Pages.novoAtendimento = {
   state: {
@@ -49,27 +38,25 @@ Pages.novoAtendimento = {
     self.state.timeline = [];
     self.state.salvando = false;
 
-    var container = document.getElementById('content-area') || document.querySelector('.content-area');
+    var container = document.getElementById('app');
     if (!container) return;
 
     if (atendimentoId) {
-      Components.showLoading('Carregando atendimento...');
+      container.innerHTML = '<div class="card skeleton-loading" style="min-height:320px;"></div>';
       google.script.run
         .withSuccessHandler(function(result) {
-          Components.hideLoading();
           if (result && result.atendimento) {
             self.state.atendimento = result.atendimento;
             self.state.timeline = result.timeline || [];
             self._renderForm(container);
           } else {
             Components.toast('Atendimento não encontrado.', 'danger');
-            App.navigateTo('atendimentos');
+            App.navigateTo('dashboard');
           }
         })
         .withFailureHandler(function(err) {
-          Components.hideLoading();
           Components.toast('Erro ao carregar atendimento: ' + err.message, 'danger');
-          App.navigateTo('atendimentos');
+          App.navigateTo('dashboard');
         })
         .getAtendimento(atendimentoId);
     } else {
@@ -82,13 +69,13 @@ Pages.novoAtendimento = {
     var isEdit = !!self.state.atendimentoId;
     var atd = self.state.atendimento || {};
     var dd = App.dropdownData || {};
-    var isSupervisor = self._isSupervisor();
+    var isSupervisor = App.isSupervisor();
 
     var hoje = new Date().toISOString().split('T')[0];
-    var dataAbertura = atd.dataAbertura ? self._formatDateForInput(atd.dataAbertura) : hoje;
-    var statusAtual = atd.status || (dd.status || [])[0] || '';
+    var dataAbertura = atd.dataAbertura ? App.toInputDate(atd.dataAbertura) : hoje;
+    var statusAtual = atd.status || 'Pendente';
 
-    var titulo = isEdit ? 'Editar Atendimento #' + self.state.atendimentoId : 'Novo Atendimento';
+    var titulo = isEdit ? 'Editar Atendimento — ' + App.escapeHtml(atd.numeroRA || '') : 'Novo Atendimento';
 
     var html = '';
     html += '<div class="page-header">';
@@ -98,103 +85,96 @@ Pages.novoAtendimento = {
     html += '<div class="card">';
     html += '  <form id="form-atendimento" autocomplete="off">';
 
-    // Linha 1: Data + Protocolo
+    // Linha 1: Protocolo Odin + Data
     html += '  <div class="form-row">';
+    html += '    <div class="form-group">';
+    html += '      <label class="form-label" for="campo-ra">Protocolo Odin <span style="color:var(--danger)">*</span></label>';
+    html += '      <input type="text" id="campo-ra" class="form-control" placeholder="Número do protocolo Odin" value="' + App.escapeHtml(atd.numeroRA || '') + '" required>';
+    html += '      <small id="ra-feedback" style="display:none;font-size:12px;margin-top:4px;"></small>';
+    html += '    </div>';
     html += '    <div class="form-group">';
     html += '      <label class="form-label" for="campo-data-abertura">Data <span style="color:var(--danger)">*</span></label>';
     html += '      <input type="date" id="campo-data-abertura" class="form-control" value="' + dataAbertura + '" required>';
-    html += '    </div>';
-    html += '    <div class="form-group">';
-    html += '      <label class="form-label" for="campo-ra">Protocolo <span style="color:var(--danger)">*</span></label>';
-    html += '      <input type="text" id="campo-ra" class="form-control" placeholder="Número do protocolo" value="' + self._escape(atd.numeroRA || '') + '" required>';
-    html += '      <small id="ra-feedback" style="display:none;font-size:12px;margin-top:4px;"></small>';
     html += '    </div>';
     html += '  </div>';
 
     // Linha 2: Nome + CPF
     html += '  <div class="form-row">';
     html += '    <div class="form-group">';
-    html += '      <label class="form-label" for="campo-cliente">Nome <span style="color:var(--danger)">*</span></label>';
-    html += '      <input type="text" id="campo-cliente" class="form-control" placeholder="Nome do cliente" value="' + self._escape(atd.cliente || '') + '" required>';
+    html += '      <label class="form-label" for="campo-cliente">Nome do cliente <span style="color:var(--danger)">*</span></label>';
+    html += '      <input type="text" id="campo-cliente" class="form-control" placeholder="Nome completo do cliente" value="' + App.escapeHtml(atd.cliente || '') + '" required>';
     html += '    </div>';
     html += '    <div class="form-group">';
-    html += '      <label class="form-label" for="campo-cpf">CPF</label>';
-    html += '      <input type="text" id="campo-cpf" class="form-control" placeholder="000.000.000-00" value="' + self._escape(atd.cpf || '') + '" maxlength="14">';
+    html += '      <label class="form-label" for="campo-cpf">CPF <span style="color:var(--danger)">*</span></label>';
+    html += '      <input type="text" id="campo-cpf" class="form-control" placeholder="000.000.000-00" value="' + App.escapeHtml(atd.cpf || '') + '" maxlength="14" required>';
     html += '      <small id="cpf-feedback" style="display:none;font-size:12px;margin-top:4px;"></small>';
     html += '    </div>';
     html += '  </div>';
 
-    // Linha 3: Produto + Canal
+    // Linha 3: Produto + Categoria (dependente do produto)
     html += '  <div class="form-row">';
     html += '    <div class="form-group">';
     html += '      <label class="form-label" for="campo-produto">Produto <span style="color:var(--danger)">*</span></label>';
     html += '      <select id="campo-produto" class="form-control" required>';
     html += '        <option value="">Selecione</option>';
-    if (dd.produtos) {
-      dd.produtos.forEach(function(p) {
-        var sel = (atd.produto === p) ? ' selected' : '';
-        html += '        <option value="' + self._escape(p) + '"' + sel + '>' + self._escape(p) + '</option>';
-      });
-    }
+    (dd.produtos || []).forEach(function(p) {
+      html += '        <option value="' + App.escapeHtml(p) + '"' + (atd.produto === p ? ' selected' : '') + '>' + App.escapeHtml(p) + '</option>';
+    });
     html += '      </select>';
     html += '    </div>';
+    html += '    <div class="form-group">';
+    html += '      <label class="form-label" for="campo-categoria">Categoria <span style="color:var(--danger)">*</span></label>';
+    html += '      <select id="campo-categoria" class="form-control" required></select>';
+    html += '    </div>';
+    html += '  </div>';
+
+    // Linha 4: Canal + Status
+    html += '  <div class="form-row">';
     html += '    <div class="form-group">';
     html += '      <label class="form-label" for="campo-canal">Canal <span style="color:var(--danger)">*</span></label>';
     html += '      <select id="campo-canal" class="form-control" required>';
     html += '        <option value="">Selecione</option>';
-    if (dd.canais) {
-      dd.canais.forEach(function(c) {
-        var sel = (atd.canal === c) ? ' selected' : '';
-        html += '        <option value="' + self._escape(c) + '"' + sel + '>' + self._escape(c) + '</option>';
-      });
-    }
+    (dd.canais || []).forEach(function(c) {
+      html += '        <option value="' + App.escapeHtml(c) + '"' + (atd.canal === c ? ' selected' : '') + '>' + App.escapeHtml(c) + '</option>';
+    });
     html += '      </select>';
     html += '    </div>';
-    html += '  </div>';
-
-    // Linha 4: Status + Aguardando Retorno de
-    html += '  <div class="form-row">';
     html += '    <div class="form-group">';
     html += '      <label class="form-label" for="campo-status">Status <span style="color:var(--danger)">*</span></label>';
     html += '      <select id="campo-status" class="form-control" required>';
-    if (dd.status) {
-      dd.status.forEach(function(s) {
-        var sel = (statusAtual === s) ? ' selected' : '';
-        html += '        <option value="' + self._escape(s) + '"' + sel + '>' + self._escape(s) + '</option>';
-      });
-    }
-    html += '      </select>';
-    html += '    </div>';
-    html += '    <div class="form-group" id="grupo-motivo-pendencia" style="' + (self._isStatusPendente(statusAtual) ? '' : 'display:none;') + '">';
-    html += '      <label class="form-label" for="campo-motivo-pendencia">Aguardando Retorno de <span style="color:var(--danger)">*</span></label>';
-    html += '      <select id="campo-motivo-pendencia" class="form-control">';
-    html += '        <option value="">Selecione</option>';
-    if (dd.motivosPendencia) {
-      dd.motivosPendencia.forEach(function(m) {
-        var sel = (atd.motivoPendencia === m) ? ' selected' : '';
-        html += '        <option value="' + self._escape(m) + '"' + sel + '>' + self._escape(m) + '</option>';
-      });
-    }
+    (dd.status || ['Pendente', 'Concluído']).forEach(function(s) {
+      html += '        <option value="' + App.escapeHtml(s) + '"' + (statusAtual === s ? ' selected' : '') + '>' + App.escapeHtml(s) + '</option>';
+    });
     html += '      </select>';
     html += '    </div>';
     html += '  </div>';
 
-    // Responsável: exceção visível apenas para Supervisor (escolhe o analista).
-    // Analista não vê este campo — o sistema identifica o criador automaticamente.
+    // Linha 5: Situação da pendência (só quando Pendente)
+    html += '  <div class="form-row" id="grupo-situacao" style="' + (statusAtual === 'Pendente' ? '' : 'display:none;') + '">';
+    html += '    <div class="form-group">';
+    html += '      <label class="form-label" for="campo-situacao">Situação da pendência <span style="color:var(--danger)">*</span></label>';
+    html += '      <select id="campo-situacao" class="form-control">';
+    html += '        <option value="">Selecione</option>';
+    (dd.situacoesPendencia || []).forEach(function(s) {
+      html += '        <option value="' + App.escapeHtml(s) + '"' + (atd.situacaoPendencia === s ? ' selected' : '') + '>' + App.escapeHtml(s) + '</option>';
+    });
+    html += '      </select>';
+    html += '    </div>';
+    html += '    <div class="form-group"></div>';
+    html += '  </div>';
+
+    // Responsável: visível apenas para Supervisor (delegação a um analista).
     if (isSupervisor) {
       html += '  <div class="form-row" data-supervisor-only>';
       html += '    <div class="form-group">';
-      html += '      <label class="form-label" for="campo-responsavel">Responsável</label>';
+      html += '      <label class="form-label" for="campo-responsavel">Responsável (delegar a)</label>';
       html += '      <select id="campo-responsavel" class="form-control">';
       html += '        <option value="">Automático (eu mesmo)</option>';
-      if (dd.responsaveis) {
-        dd.responsaveis.forEach(function(r) {
-          var sel = (atd.responsavel === r) ? ' selected' : '';
-          html += '        <option value="' + self._escape(r) + '"' + sel + '>' + self._escape(r) + '</option>';
-        });
-      }
+      (dd.responsaveis || []).forEach(function(r) {
+        html += '        <option value="' + App.escapeHtml(r) + '"' + (atd.responsavel === r ? ' selected' : '') + '>' + App.escapeHtml(r) + '</option>';
+      });
       html += '      </select>';
-      html += '      <small style="color:var(--text-secondary);font-size:12px;margin-top:4px;display:block;">Somente supervisores escolhem o analista responsável.</small>';
+      html += '      <small style="color:var(--text-secondary);font-size:12px;margin-top:4px;display:block;">Somente supervisores podem delegar o atendimento a um analista.</small>';
       html += '    </div>';
       html += '    <div class="form-group"></div>';
       html += '  </div>';
@@ -203,7 +183,7 @@ Pages.novoAtendimento = {
     // Observações
     html += '  <div class="form-group">';
     html += '    <label class="form-label" for="campo-observacoes">Observações</label>';
-    html += '    <textarea id="campo-observacoes" class="form-control" rows="4" placeholder="Observações sobre o atendimento (opcional)">' + self._escape(atd.observacoes || '') + '</textarea>';
+    html += '    <textarea id="campo-observacoes" class="form-control" rows="4" placeholder="Observações sobre o atendimento (opcional)">' + App.escapeHtml(atd.observacoes || '') + '</textarea>';
     html += '  </div>';
 
     // Botões de ação
@@ -220,7 +200,7 @@ Pages.novoAtendimento = {
     html += '  </form>';
     html += '</div>';
 
-    // Seção de Adicionar Observação (somente edição)
+    // Adicionar observação + histórico (somente edição)
     if (isEdit) {
       html += '<div class="card" style="margin-top:20px;">';
       html += '  <h3 style="margin-bottom:16px;font-size:16px;font-weight:600;">Adicionar Observação</h3>';
@@ -231,44 +211,45 @@ Pages.novoAtendimento = {
       html += '    <button type="button" id="btn-adicionar-observacao" class="btn btn-primary btn-sm">📝 Adicionar Observação</button>';
       html += '  </div>';
       html += '</div>';
-    }
 
-    // Timeline (somente edição)
-    if (isEdit && self.state.timeline && self.state.timeline.length > 0) {
       html += '<div class="card" style="margin-top:20px;">';
       html += '  <h3 style="margin-bottom:16px;font-size:16px;font-weight:600;">Histórico do Atendimento</h3>';
       html += '  <div id="timeline-container">';
-      html += Components.timeline(self.state.timeline);
+      html += self.state.timeline.length > 0
+        ? Components.timeline(self.state.timeline)
+        : Components.emptyState('history', 'Nenhum registro no histórico.');
       html += '  </div>';
-      html += '</div>';
-    } else if (isEdit) {
-      html += '<div class="card" style="margin-top:20px;">';
-      html += '  <h3 style="margin-bottom:16px;font-size:16px;font-weight:600;">Histórico do Atendimento</h3>';
-      html += Components.emptyState('📋', 'Nenhum registro no histórico.');
       html += '</div>';
     }
 
     container.innerHTML = html;
 
-    // Vincular eventos
+    self._popularCategorias(atd.categoria || '');
     self._bindEvents();
+  },
+
+  // Preenche o select de categorias conforme o produto escolhido
+  // (usa dropdownData.categoriasPorProduto, calculado no servidor).
+  _popularCategorias: function(selecionada) {
+    var dd = App.dropdownData || {};
+    var produto = (document.getElementById('campo-produto') || {}).value || '';
+    var porProduto = dd.categoriasPorProduto || {};
+    var lista = (porProduto[produto] || []).concat(porProduto['Geral'] || []);
+    if (!produto) lista = dd.categorias || [];
+    App.fillSelect('campo-categoria', lista, 'Selecione', selecionada || undefined);
   },
 
   _bindEvents: function() {
     var self = this;
 
-    // Máscara CPF
+    // Máscara + validação de CPF
     var campoCpf = document.getElementById('campo-cpf');
     if (campoCpf) {
-      campoCpf.addEventListener('input', function() {
-        App.maskCPF(this);
-      });
-      campoCpf.addEventListener('blur', function() {
-        self._validarCPF(this.value);
-      });
+      campoCpf.addEventListener('input', function() { App.maskCPF(this); });
+      campoCpf.addEventListener('blur', function() { self._validarCPF(this.value); });
     }
 
-    // Verificar duplicidade do Protocolo
+    // Verificar duplicidade do Protocolo Odin
     var campoRA = document.getElementById('campo-ra');
     if (campoRA) {
       campoRA.addEventListener('blur', function() {
@@ -276,48 +257,39 @@ Pages.novoAtendimento = {
       });
     }
 
-    // Status muda → mostrar/esconder "Aguardando Retorno de" (só aparece em "Pendente")
+    // Produto muda → recarrega as categorias do produto
+    var campoProduto = document.getElementById('campo-produto');
+    if (campoProduto) {
+      campoProduto.addEventListener('change', function() {
+        self._popularCategorias('');
+      });
+    }
+
+    // Status muda → mostrar/esconder "Situação da pendência"
     var campoStatus = document.getElementById('campo-status');
     if (campoStatus) {
       campoStatus.addEventListener('change', function() {
-        var grupoMotivo = document.getElementById('grupo-motivo-pendencia');
-        if (grupoMotivo) {
-          if (self._isStatusPendente(this.value)) {
-            grupoMotivo.style.display = '';
-          } else {
-            grupoMotivo.style.display = 'none';
-            var campoMotivo = document.getElementById('campo-motivo-pendencia');
-            if (campoMotivo) campoMotivo.value = '';
-          }
+        var grupo = document.getElementById('grupo-situacao');
+        if (!grupo) return;
+        if (this.value === 'Pendente') {
+          grupo.style.display = '';
+        } else {
+          grupo.style.display = 'none';
+          var campoSituacao = document.getElementById('campo-situacao');
+          if (campoSituacao) campoSituacao.value = '';
         }
       });
     }
 
-    // Botão Salvar
     var btnSalvar = document.getElementById('btn-salvar-atendimento');
-    if (btnSalvar) {
-      btnSalvar.addEventListener('click', function() {
-        self._salvar();
-      });
-    }
+    if (btnSalvar) btnSalvar.addEventListener('click', function() { self._salvar(); });
 
-    // Botão Limpar (novo)
     var btnLimpar = document.getElementById('btn-limpar-atendimento');
-    if (btnLimpar) {
-      btnLimpar.addEventListener('click', function() {
-        self._limparFormulario();
-      });
-    }
+    if (btnLimpar) btnLimpar.addEventListener('click', function() { self._limparFormulario(); });
 
-    // Botão Cancelar (edição)
     var btnCancelar = document.getElementById('btn-cancelar-atendimento');
-    if (btnCancelar) {
-      btnCancelar.addEventListener('click', function() {
-        App.navigateTo('atendimentos');
-      });
-    }
+    if (btnCancelar) btnCancelar.addEventListener('click', function() { App.navigateTo('dashboard'); });
 
-    // Botão Excluir (edição)
     var btnExcluir = document.getElementById('btn-excluir-atendimento');
     if (btnExcluir) {
       btnExcluir.addEventListener('click', function() {
@@ -327,13 +299,8 @@ Pages.novoAtendimento = {
       });
     }
 
-    // Botão Adicionar Observação
     var btnObservacao = document.getElementById('btn-adicionar-observacao');
-    if (btnObservacao) {
-      btnObservacao.addEventListener('click', function() {
-        self._adicionarObservacao();
-      });
-    }
+    if (btnObservacao) btnObservacao.addEventListener('click', function() { self._adicionarObservacao(); });
   },
 
   _verificarDuplicidadeRA: function(valor) {
@@ -342,21 +309,12 @@ Pages.novoAtendimento = {
     var feedback = document.getElementById('ra-feedback');
 
     google.script.run
-      .withSuccessHandler(function(resultados) {
+      .withSuccessHandler(function(result) {
         if (!feedback) return;
-        if (resultados && resultados.length > 0) {
-          var isDuplicata = resultados.some(function(r) {
-            if (self.state.atendimentoId && r.id === self.state.atendimentoId) return false;
-            return r.numeroRA === valor.trim();
-          });
-          if (isDuplicata) {
-            feedback.style.display = 'block';
-            feedback.style.color = 'var(--warning)';
-            feedback.textContent = '⚠️ Já existe um atendimento com este número RA.';
-          } else {
-            feedback.style.display = 'none';
-            feedback.textContent = '';
-          }
+        if (result && result.duplicado) {
+          feedback.style.display = 'block';
+          feedback.style.color = 'var(--warning)';
+          feedback.textContent = '⚠️ Já existe um atendimento com este Protocolo Odin.';
         } else {
           feedback.style.display = 'none';
           feedback.textContent = '';
@@ -368,7 +326,7 @@ Pages.novoAtendimento = {
           feedback.textContent = '';
         }
       })
-      .pesquisarAtendimentos(valor.trim());
+      .verificarProtocoloDuplicado(valor.trim(), self.state.atendimentoId || '');
   },
 
   _validarCPF: function(cpf) {
@@ -378,98 +336,44 @@ Pages.novoAtendimento = {
       feedback.style.display = 'none';
       return;
     }
-
-    var cpfLimpo = cpf.replace(/\D/g, '');
-
-    if (cpfLimpo.length !== 11) {
-      feedback.style.display = 'block';
-      feedback.style.color = 'var(--danger)';
-      feedback.textContent = '❌ CPF deve conter 11 dígitos.';
-      return;
-    }
-
-    // Verificar CPFs com todos dígitos iguais
-    if (/^(\d)\1{10}$/.test(cpfLimpo)) {
-      feedback.style.display = 'block';
-      feedback.style.color = 'var(--danger)';
-      feedback.textContent = '❌ CPF inválido.';
-      return;
-    }
-
-    // Validação dos dígitos verificadores
-    var soma = 0;
-    for (var i = 0; i < 9; i++) {
-      soma += parseInt(cpfLimpo.charAt(i)) * (10 - i);
-    }
-    var resto = (soma * 10) % 11;
-    if (resto === 10) resto = 0;
-    if (resto !== parseInt(cpfLimpo.charAt(9))) {
-      feedback.style.display = 'block';
-      feedback.style.color = 'var(--danger)';
-      feedback.textContent = '❌ CPF inválido.';
-      return;
-    }
-
-    soma = 0;
-    for (var j = 0; j < 10; j++) {
-      soma += parseInt(cpfLimpo.charAt(j)) * (11 - j);
-    }
-    resto = (soma * 10) % 11;
-    if (resto === 10) resto = 0;
-    if (resto !== parseInt(cpfLimpo.charAt(10))) {
-      feedback.style.display = 'block';
-      feedback.style.color = 'var(--danger)';
-      feedback.textContent = '❌ CPF inválido.';
-      return;
-    }
-
     feedback.style.display = 'block';
-    feedback.style.color = 'var(--success)';
-    feedback.textContent = '✅ CPF válido.';
-  },
-
-  _isSupervisor: function() {
-    var allowed = ['supervisor', 'gestor', 'administrador', 'admin'];
-    var profile = String((App.user || {}).perfil || '').toLowerCase();
-    return allowed.indexOf(profile) !== -1;
-  },
-
-  _isStatusPendente: function(status) {
-    if (!status) return false;
-    return status.toLowerCase().indexOf('pendente') !== -1;
+    if (App.isValidCPF(cpf)) {
+      feedback.style.color = 'var(--success)';
+      feedback.textContent = '✅ CPF válido.';
+    } else {
+      feedback.style.color = 'var(--danger)';
+      feedback.textContent = '❌ CPF inválido.';
+    }
   },
 
   _validarFormulario: function() {
     var erros = [];
+    var campos = {
+      'campo-ra': 'Protocolo Odin é obrigatório.',
+      'campo-cpf': 'CPF é obrigatório.',
+      'campo-cliente': 'Nome do cliente é obrigatório.',
+      'campo-data-abertura': 'Data é obrigatória.',
+      'campo-produto': 'Produto é obrigatório.',
+      'campo-categoria': 'Categoria é obrigatória.',
+      'campo-canal': 'Canal é obrigatório.',
+      'campo-status': 'Status é obrigatório.'
+    };
+    Object.keys(campos).forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el || !String(el.value || '').trim()) erros.push(campos[id]);
+    });
 
-    var dataAbertura = document.getElementById('campo-data-abertura');
-    var ra = document.getElementById('campo-ra');
-    var cliente = document.getElementById('campo-cliente');
-    var produto = document.getElementById('campo-produto');
-    var canal = document.getElementById('campo-canal');
     var status = document.getElementById('campo-status');
-    var motivoPendencia = document.getElementById('campo-motivo-pendencia');
-
-    if (!dataAbertura || !dataAbertura.value) erros.push('Data é obrigatória.');
-    if (!ra || !ra.value.trim()) erros.push('Protocolo é obrigatório.');
-    if (!cliente || !cliente.value.trim()) erros.push('Nome é obrigatório.');
-    if (!produto || !produto.value) erros.push('Produto é obrigatório.');
-    if (!canal || !canal.value) erros.push('Canal é obrigatório.');
-    if (!status || !status.value) erros.push('Status é obrigatório.');
-
-    if (status && this._isStatusPendente(status.value)) {
-      if (!motivoPendencia || !motivoPendencia.value) {
-        erros.push('"Aguardando Retorno de" é obrigatório quando o Status é "Pendente".');
+    if (status && status.value === 'Pendente') {
+      var situacao = document.getElementById('campo-situacao');
+      if (!situacao || !situacao.value) {
+        erros.push('Situação da pendência é obrigatória quando o status é "Pendente".');
       }
     }
 
-    // Validar CPF se preenchido
     var cpf = document.getElementById('campo-cpf');
-    if (cpf && cpf.value.trim()) {
-      var cpfLimpo = cpf.value.replace(/\D/g, '');
-      if (cpfLimpo.length !== 11) {
-        erros.push('CPF informado é inválido.');
-      }
+    if (cpf && cpf.value.trim() && !App.isValidCPF(cpf.value)) {
+      erros.push('CPF informado é inválido.');
     }
 
     return erros;
@@ -477,19 +381,29 @@ Pages.novoAtendimento = {
 
   _coletarDados: function() {
     var campoResponsavel = document.getElementById('campo-responsavel');
-    var campoMotivo = document.getElementById('campo-motivo-pendencia');
+    var campoSituacao = document.getElementById('campo-situacao');
     return {
       numeroRA: (document.getElementById('campo-ra').value || '').trim(),
       cliente: (document.getElementById('campo-cliente').value || '').trim(),
       cpf: (document.getElementById('campo-cpf').value || '').trim(),
       produto: document.getElementById('campo-produto').value || '',
+      categoria: document.getElementById('campo-categoria').value || '',
       canal: document.getElementById('campo-canal').value || '',
       status: document.getElementById('campo-status').value || '',
+      motivoPendencia: campoSituacao ? (campoSituacao.value || '') : '',
       observacoes: (document.getElementById('campo-observacoes').value || '').trim(),
       dataAbertura: document.getElementById('campo-data-abertura').value || '',
-      motivoPendencia: campoMotivo ? (campoMotivo.value || '') : '',
       responsavel: campoResponsavel ? (campoResponsavel.value || '') : ''
     };
+  },
+
+  _setSaving: function(saving) {
+    this.state.salvando = saving;
+    var btn = document.getElementById('btn-salvar-atendimento');
+    if (btn) {
+      btn.disabled = saving;
+      btn.textContent = saving ? '⏳ Salvando...' : '💾 Salvar';
+    }
   },
 
   _salvar: function() {
@@ -503,97 +417,59 @@ Pages.novoAtendimento = {
     }
 
     var dados = self._coletarDados();
-    self.state.salvando = true;
-
-    var btnSalvar = document.getElementById('btn-salvar-atendimento');
-    if (btnSalvar) {
-      btnSalvar.disabled = true;
-      btnSalvar.textContent = '⏳ Salvando...';
-    }
-
-    Components.showLoading('Salvando atendimento...');
 
     if (self.state.atendimentoId) {
-      // Edição: solicitar justificativa
-      var justificativa = '';
+      // Edição: solicitar justificativa antes de salvar.
       Components.modal({
         title: 'Justificativa da Alteração',
         body: '<div class="form-group"><label class="form-label">Descreva o motivo da alteração:</label><textarea id="campo-justificativa" class="form-control" rows="3" placeholder="Informe o motivo da edição..."></textarea></div>',
         confirmText: 'Confirmar',
         cancelText: 'Cancelar',
-        type: 'default',
         onConfirm: function() {
           var campoJust = document.getElementById('campo-justificativa');
-          justificativa = campoJust ? campoJust.value.trim() : '';
+          var justificativa = campoJust ? campoJust.value.trim() : '';
           if (!justificativa) {
             Components.toast('Justificativa é obrigatória para alterações.', 'warning');
-            self.state.salvando = false;
-            if (btnSalvar) {
-              btnSalvar.disabled = false;
-              btnSalvar.textContent = '💾 Salvar';
-            }
-            Components.hideLoading();
             return;
           }
+          self._setSaving(true);
+          Components.showLoading('Salvando atendimento...');
           google.script.run
             .withSuccessHandler(function(result) {
               Components.hideLoading();
-              self.state.salvando = false;
-              if (btnSalvar) {
-                btnSalvar.disabled = false;
-                btnSalvar.textContent = '💾 Salvar';
-              }
+              self._setSaving(false);
               if (result && result.success) {
                 Components.toast('Atendimento atualizado com sucesso!', 'success');
-                App.navigateTo('atendimentos');
+                App.navigateTo('dashboard');
               } else {
-                Components.toast(result.message || 'Erro ao atualizar atendimento.', 'danger');
+                Components.toast((result && result.message) || 'Erro ao atualizar atendimento.', 'danger');
               }
             })
             .withFailureHandler(function(err) {
               Components.hideLoading();
-              self.state.salvando = false;
-              if (btnSalvar) {
-                btnSalvar.disabled = false;
-                btnSalvar.textContent = '💾 Salvar';
-              }
+              self._setSaving(false);
               Components.toast('Erro ao atualizar: ' + err.message, 'danger');
             })
             .atualizarAtendimento(self.state.atendimentoId, dados, justificativa);
-        },
-        onCancel: function() {
-          self.state.salvando = false;
-          if (btnSalvar) {
-            btnSalvar.disabled = false;
-            btnSalvar.textContent = '💾 Salvar';
-          }
-          Components.hideLoading();
         }
       });
     } else {
-      // Novo atendimento
+      self._setSaving(true);
+      Components.showLoading('Salvando atendimento...');
       google.script.run
         .withSuccessHandler(function(result) {
           Components.hideLoading();
-          self.state.salvando = false;
-          if (btnSalvar) {
-            btnSalvar.disabled = false;
-            btnSalvar.textContent = '💾 Salvar';
-          }
+          self._setSaving(false);
           if (result && result.success) {
-            Components.toast('Atendimento #' + result.id + ' criado com sucesso!', 'success');
-            App.navigateTo('atendimentos');
+            Components.toast('Atendimento criado com sucesso!', 'success');
+            App.navigateTo('dashboard');
           } else {
-            Components.toast(result.message || 'Erro ao salvar atendimento.', 'danger');
+            Components.toast((result && result.message) || 'Erro ao salvar atendimento.', 'danger');
           }
         })
         .withFailureHandler(function(err) {
           Components.hideLoading();
-          self.state.salvando = false;
-          if (btnSalvar) {
-            btnSalvar.disabled = false;
-            btnSalvar.textContent = '💾 Salvar';
-          }
+          self._setSaving(false);
           Components.toast('Erro ao salvar: ' + err.message, 'danger');
         })
         .salvarAtendimento(dados);
@@ -603,15 +479,14 @@ Pages.novoAtendimento = {
   _excluir: function() {
     var self = this;
     Components.showLoading('Excluindo atendimento...');
-
     google.script.run
       .withSuccessHandler(function(result) {
         Components.hideLoading();
         if (result && result.success) {
           Components.toast('Atendimento excluído com sucesso.', 'success');
-          App.navigateTo('atendimentos');
+          App.navigateTo('dashboard');
         } else {
-          Components.toast(result.message || 'Erro ao excluir atendimento.', 'danger');
+          Components.toast((result && result.message) || 'Erro ao excluir atendimento.', 'danger');
         }
       })
       .withFailureHandler(function(err) {
@@ -631,14 +506,12 @@ Pages.novoAtendimento = {
 
     var texto = campo.value.trim();
     Components.showLoading('Adicionando observação...');
-
     google.script.run
       .withSuccessHandler(function(result) {
         Components.hideLoading();
         if (result && result.success) {
           Components.toast('Observação adicionada com sucesso!', 'success');
           campo.value = '';
-          // Recarregar timeline
           self._recarregarTimeline();
         } else {
           Components.toast('Erro ao adicionar observação.', 'danger');
@@ -658,11 +531,9 @@ Pages.novoAtendimento = {
         self.state.timeline = timeline || [];
         var container = document.getElementById('timeline-container');
         if (container) {
-          if (self.state.timeline.length > 0) {
-            container.innerHTML = Components.timeline(self.state.timeline);
-          } else {
-            container.innerHTML = Components.emptyState('📋', 'Nenhum registro no histórico.');
-          }
+          container.innerHTML = self.state.timeline.length > 0
+            ? Components.timeline(self.state.timeline)
+            : Components.emptyState('history', 'Nenhum registro no histórico.');
         }
       })
       .withFailureHandler(function(err) {
@@ -675,44 +546,23 @@ Pages.novoAtendimento = {
     var form = document.getElementById('form-atendimento');
     if (form) form.reset();
 
-    // Restaurar data de abertura para hoje
     var campoData = document.getElementById('campo-data-abertura');
-    if (campoData) {
-      campoData.value = new Date().toISOString().split('T')[0];
+    if (campoData) campoData.value = new Date().toISOString().split('T')[0];
+
+    this._popularCategorias('');
+
+    var grupoSituacao = document.getElementById('grupo-situacao');
+    var campoStatus = document.getElementById('campo-status');
+    if (grupoSituacao && campoStatus) {
+      grupoSituacao.style.display = campoStatus.value === 'Pendente' ? '' : 'none';
     }
 
-    // Esconder "Aguardando Retorno de"
-    var grupoMotivo = document.getElementById('grupo-motivo-pendencia');
-    if (grupoMotivo) grupoMotivo.style.display = 'none';
-
-    // Limpar feedbacks
-    var raFeedback = document.getElementById('ra-feedback');
-    if (raFeedback) { raFeedback.style.display = 'none'; raFeedback.textContent = ''; }
-    var cpfFeedback = document.getElementById('cpf-feedback');
-    if (cpfFeedback) { cpfFeedback.style.display = 'none'; cpfFeedback.textContent = ''; }
+    ['ra-feedback', 'cpf-feedback'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) { el.style.display = 'none'; el.textContent = ''; }
+    });
 
     Components.toast('Formulário limpo.', 'success', 2000);
-  },
-
-  _formatDateForInput: function(dateValue) {
-    if (!dateValue) return '';
-    try {
-      var d = new Date(dateValue);
-      if (isNaN(d.getTime())) return '';
-      var year = d.getFullYear();
-      var month = ('0' + (d.getMonth() + 1)).slice(-2);
-      var day = ('0' + d.getDate()).slice(-2);
-      return year + '-' + month + '-' + day;
-    } catch (e) {
-      return '';
-    }
-  },
-
-  _escape: function(str) {
-    if (!str) return '';
-    var div = document.createElement('div');
-    div.appendChild(document.createTextNode(str));
-    return div.innerHTML;
   }
 };
 </script>

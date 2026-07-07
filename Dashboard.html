@@ -1,183 +1,332 @@
 <script>
 /* ============================================================
-   Pages.dashboard — Tela inicial (visão geral dos atendimentos)
+   Pages.dashboard — Tela inicial (visão geral + lista de atendimentos)
    ------------------------------------------------------------
    GUIA PARA QUEM ESTÁ COMEÇANDO
-   Esta é a primeira tela que o usuário vê ao abrir o sistema. Ela
-   mostra números resumidos (KPIs) e uma lista de alertas importantes.
+   Primeira tela do sistema. Mostra:
+     1) KPIs (total, pendentes, concluídos e pendentes por situação);
+     2) A lista de atendimentos do usuário (Analista vê só os seus;
+        Supervisor vê os de todos — regra aplicada no servidor), com
+        alteração de status/situação direto na tabela.
 
-   Como funciona, passo a passo:
-     1) render(container)      → desenha o esqueleto da página (título,
-                                  "caixinhas" vazias de KPI com efeito de
-                                  carregamento) e já chama carregarDados().
-     2) carregarDados()        → pede os números de verdade ao servidor
-                                  (função getDashboardData(), em
-                                  Services.gs) respeitando os filtros
-                                  globais do topo da tela.
-     3) renderizarKPIs(cards)  → troca as "caixinhas" vazias pelos
-                                  números reais retornados pelo servidor.
-     4) renderizarAlertas(...) → desenha a lista de alertas (SLA vencido,
-                                  atendimento parado, etc.).
-     5) navegarAlerta(id)      → leva o usuário direto para o atendimento
-                                  quando ele clica em um alerta.
+   Tudo vem de UMA única chamada ao servidor (getDashboardData em
+   Services.gs), para evitar telas de carregamento em sequência.
+
+   Fluxo:
+     render(container)   → desenha o esqueleto e chama carregarDados().
+     carregarDados()     → busca cards + atendimentos no servidor.
+     renderizarKPIs()    → preenche os cartões de resumo.
+     renderizarTabela()  → desenha a tabela com busca local e ações.
+     alterarStatus(id)   → abre o mini-modal de mudança de status e chama
+                           alterarStatusAtendimento() no servidor.
    ============================================================ */
 Pages.dashboard = {
+  state: {
+    atendimentos: [],
+    filtrados: [],
+    termoBusca: '',
+    pagina: 1,
+    porPagina: 25
+  },
+
   render: function(container) {
     var html = '';
 
-    // Page header
     html += '<div class="page-header">';
     html += '  <div>';
     html += '    <h1 class="page-title">Dashboard</h1>';
     html += '    <p style="color: var(--text-secondary, #6c757d); margin: 4px 0 0 0;">Visão geral dos atendimentos</p>';
     html += '  </div>';
+    html += '  <button class="btn btn-primary" onclick="App.navigateTo(\'novoAtendimento\')">➕ Novo Atendimento</button>';
     html += '</div>';
 
-    // KPI cards container
     html += '<div class="grid-4" id="dashboard-kpis">';
-    html += '  <div class="kpi-card skeleton-loading" style="min-height: 100px;"></div>';
-    html += '  <div class="kpi-card skeleton-loading" style="min-height: 100px;"></div>';
-    html += '  <div class="kpi-card skeleton-loading" style="min-height: 100px;"></div>';
-    html += '  <div class="kpi-card skeleton-loading" style="min-height: 100px;"></div>';
-    html += '  <div class="kpi-card skeleton-loading" style="min-height: 100px;"></div>';
-    html += '  <div class="kpi-card skeleton-loading" style="min-height: 100px;"></div>';
+    for (var i = 0; i < 6; i++) {
+      html += '<div class="kpi-card skeleton-loading" style="min-height: 100px;"></div>';
+    }
     html += '</div>';
 
-    // Alerts panel
-    html += '<div class="card" id="dashboard-alertas" style="margin-top: 24px;">';
-    html += '  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">';
-    html += '    <span class="material-icons" style="color: #FF9800;">warning</span>';
-    html += '    <h2 style="margin: 0; font-size: 1.15rem; font-weight: 600;">⚠️ Alertas</h2>';
-    html += '  </div>';
-    html += '  <div id="alertas-lista">';
-    html += '    <div style="text-align: center; padding: 32px; color: var(--text-secondary, #6c757d);">';
-    html += '      <span class="material-icons" style="font-size: 2rem; opacity: 0.5;">sync</span>';
-    html += '      <p>Carregando alertas...</p>';
+    html += '<div class="card" style="margin-top: 24px;">';
+    html += '  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">';
+    html += '    <h2 style="margin:0;font-size:1.15rem;font-weight:600;">Atendimentos <span id="dashboard-contagem" class="badge" style="font-size:13px;vertical-align:middle;">0</span></h2>';
+    html += '    <div class="search-box" style="max-width:340px;flex:1;">';
+    html += '      <input type="text" id="dashboard-busca" class="form-control" placeholder="🔍 Buscar por protocolo, cliente, produto...">';
     html += '    </div>';
     html += '  </div>';
+    html += '  <div id="dashboard-tabela">' + Components.emptyState('sync', 'Carregando atendimentos...') + '</div>';
+    html += '  <div id="dashboard-paginacao"></div>';
     html += '</div>';
 
     container.innerHTML = html;
 
-    // Load dashboard data
-    Pages.dashboard.carregarDados();
+    var self = this;
+    var busca = document.getElementById('dashboard-busca');
+    if (busca) {
+      var timer = null;
+      busca.addEventListener('input', function() {
+        clearTimeout(timer);
+        var termo = this.value;
+        timer = setTimeout(function() {
+          self.state.termoBusca = termo;
+          self.state.pagina = 1;
+          self.filtrarLocal();
+          self.renderizarTabela();
+        }, 250);
+      });
+    }
+
+    this.carregarDados();
   },
 
   carregarDados: function() {
-    Components.showLoading('Carregando dados do dashboard...');
-
-    var filtros = App.getFilters();
-
+    var self = this;
     google.script.run
       .withSuccessHandler(function(data) {
-        Components.hideLoading();
-        Pages.dashboard.renderizarKPIs(data.cards);
-        Pages.dashboard.renderizarAlertas(data.alertas);
+        self.state.atendimentos = (data && data.atendimentos) || [];
+        self.state.pagina = 1;
+        self.filtrarLocal();
+        self.renderizarKPIs(data && data.cards, data && data.porSituacao);
+        self.renderizarTabela();
       })
       .withFailureHandler(function(erro) {
-        Components.hideLoading();
         Components.toast('Erro ao carregar o dashboard: ' + erro.message, 'error', 5000);
-
         var kpiContainer = document.getElementById('dashboard-kpis');
         if (kpiContainer) {
           kpiContainer.innerHTML = Components.emptyState('error_outline', 'Não foi possível carregar os indicadores. Tente novamente.');
         }
-
-        var alertasLista = document.getElementById('alertas-lista');
-        if (alertasLista) {
-          alertasLista.innerHTML = Components.emptyState('error_outline', 'Não foi possível carregar os alertas.');
+        var tabela = document.getElementById('dashboard-tabela');
+        if (tabela) {
+          tabela.innerHTML = Components.emptyState('error_outline', 'Não foi possível carregar os atendimentos.');
         }
       })
-      .getDashboardData(filtros);
+      .getDashboardData();
   },
 
-  renderizarKPIs: function(cards) {
+  renderizarKPIs: function(cards, porSituacao) {
     var container = document.getElementById('dashboard-kpis');
     if (!container) return;
+    cards = cards || {};
+    porSituacao = porSituacao || {};
 
     var html = '';
+    html += Components.kpiCard('assignment', App.formatNumber(cards.totalAtendimentos || 0), 'Total de Atendimentos', '#0046C0');
+    html += Components.kpiCard('hourglass_empty', App.formatNumber(cards.pendentes || 0), 'Pendentes', '#FF9800');
+    html += Components.kpiCard('check_circle', App.formatNumber(cards.concluidos || 0), 'Concluídos', '#43A047');
 
-    // 1. Total de Atendimentos
-    html += Components.kpiCard(
-      'assignment',
-      App.formatNumber(cards.totalAtendimentos || 0),
-      'Total de Atendimentos',
-      '#0046C0'
-    );
-
-    // 2. Pendentes
-    html += Components.kpiCard(
-      'hourglass_empty',
-      App.formatNumber(cards.pendentes || 0),
-      'Pendentes',
-      '#FF9800'
-    );
-
-    // 3. Em análise
-    html += Components.kpiCard(
-      'pending_actions',
-      App.formatNumber(cards.emAnalise || 0),
-      'Em Análise',
-      '#2196F3'
-    );
-
-    // 4. Concluídos
-    html += Components.kpiCard(
-      'check_circle',
-      App.formatNumber(cards.concluidos || 0),
-      'Concluídos',
-      '#43A047'
-    );
-
-    // 5. Pendentes aguardando Área
-    html += Components.kpiCard(
-      'apartment',
-      App.formatNumber(cards.pendentesAguardandoArea || 0),
-      'Pendentes aguardando Área',
-      '#9C27B0'
-    );
-
-    // 6. Pendentes aguardando Cliente
-    html += Components.kpiCard(
-      'person',
-      App.formatNumber(cards.pendentesAguardandoCliente || 0),
-      'Pendentes aguardando Cliente',
-      '#00A3E0'
-    );
+    var situacaoIcones = {
+      'Em análise área': 'apartment',
+      'Em análise do analista': 'person_search',
+      'Em análise aguardando retorno do cliente': 'person'
+    };
+    var situacaoCores = {
+      'Em análise área': '#9C27B0',
+      'Em análise do analista': '#2196F3',
+      'Em análise aguardando retorno do cliente': '#00A3E0'
+    };
+    Object.keys(porSituacao).forEach(function(situacao) {
+      html += Components.kpiCard(
+        situacaoIcones[situacao] || 'pending_actions',
+        App.formatNumber(porSituacao[situacao] || 0),
+        situacao,
+        situacaoCores[situacao] || '#607D8B'
+      );
+    });
 
     container.innerHTML = html;
   },
 
-  renderizarAlertas: function(alertas) {
-    var lista = document.getElementById('alertas-lista');
-    if (!lista) return;
+  filtrarLocal: function() {
+    var termo = (this.state.termoBusca || '').toLowerCase().trim();
+    if (!termo) {
+      this.state.filtrados = this.state.atendimentos.slice();
+    } else {
+      this.state.filtrados = this.state.atendimentos.filter(function(item) {
+        return [item.numeroRA, item.cliente, item.cpf, item.produto, item.categoria,
+          item.status, item.situacaoPendencia, item.responsavel, item.canal]
+          .some(function(campo) {
+            return campo && String(campo).toLowerCase().indexOf(termo) !== -1;
+          });
+      });
+    }
 
-    if (!alertas || alertas.length === 0) {
-      lista.innerHTML = Components.emptyState('check_circle', 'Nenhum alerta no momento. Tudo está em ordem!');
+    var badge = document.getElementById('dashboard-contagem');
+    if (badge) badge.textContent = App.formatNumber(this.state.filtrados.length);
+  },
+
+  renderizarTabela: function() {
+    var self = this;
+    var container = document.getElementById('dashboard-tabela');
+    var paginacao = document.getElementById('dashboard-paginacao');
+    if (!container) return;
+
+    var dados = self.state.filtrados;
+    if (!dados.length) {
+      container.innerHTML = Components.emptyState('inbox', 'Nenhum atendimento encontrado.');
+      if (paginacao) paginacao.innerHTML = '';
       return;
     }
 
-    var html = '';
+    var totalPaginas = Math.max(1, Math.ceil(dados.length / self.state.porPagina));
+    if (self.state.pagina > totalPaginas) self.state.pagina = totalPaginas;
+    var inicio = (self.state.pagina - 1) * self.state.porPagina;
+    var paginados = dados.slice(inicio, inicio + self.state.porPagina);
 
-    for (var i = 0; i < alertas.length; i++) {
-      var alerta = alertas[i];
-      html += '<div onclick="Pages.dashboard.navegarAlerta(\'' + (alerta.atendimentoId || '') + '\')" style="cursor: pointer;">';
-      html += Components.alertCard(
-        alerta.tipo || 'warning',
-        alerta.mensagem || 'Alerta sem descrição',
-        alerta.atendimentoId || null,
-        alerta.prioridade || 'normal'
-      );
-      html += '</div>';
+    var headers = [
+      { label: 'Protocolo Odin', field: 'numeroRA', sortable: false },
+      { label: 'Cliente', field: 'cliente', sortable: false },
+      { label: 'Produto', field: 'produto', sortable: false },
+      { label: 'Canal', field: 'canal', sortable: false },
+      { label: 'Status', field: 'status', sortable: false },
+      { label: 'Situação', field: 'situacaoPendencia', sortable: false },
+      { label: 'Responsável', field: 'responsavel', sortable: false },
+      { label: 'Data', field: 'dataAbertura', sortable: false }
+    ];
+
+    var rows = paginados.map(function(item) {
+      return {
+        cells: [
+          '<strong>' + App.escapeHtml(item.numeroRA || '') + '</strong>',
+          App.escapeHtml(item.cliente || ''),
+          App.escapeHtml(item.produto || ''),
+          App.escapeHtml(item.canal || ''),
+          Components.statusBadge(item.status, item.statusCor || null),
+          App.escapeHtml(item.situacaoPendencia || '—'),
+          App.escapeHtml(item.responsavel || ''),
+          App.formatDateBR(item.dataAbertura)
+        ],
+        id: item.id,
+        raw: item
+      };
+    });
+
+    var actions = [
+      {
+        icon: 'swap_horiz',
+        title: 'Alterar status',
+        onClick: function(row) { self.alterarStatus(row.raw); }
+      },
+      {
+        icon: 'edit',
+        title: 'Editar',
+        onClick: function(row) { App.navigateTo('novoAtendimento', row.id); }
+      },
+      {
+        icon: 'delete',
+        title: 'Excluir',
+        onClick: function(row) {
+          Components.confirm('Tem certeza que deseja excluir o atendimento ' + App.escapeHtml(row.raw.numeroRA) + '? Esta ação não poderá ser desfeita.', function() {
+            self.excluir(row.id);
+          });
+        }
+      }
+    ];
+
+    container.innerHTML = Components.dataTable({
+      headers: headers,
+      rows: rows,
+      actions: actions
+    });
+
+    if (paginacao) {
+      paginacao.innerHTML = totalPaginas > 1
+        ? Components.pagination(self.state.pagina, totalPaginas, function(pagina) {
+            self.state.pagina = pagina;
+            self.renderizarTabela();
+          })
+        : '';
     }
-
-    lista.innerHTML = html;
   },
 
-  navegarAlerta: function(atendimentoId) {
-    if (atendimentoId) {
-      App.navigateTo('editar', { id: atendimentoId });
+  // Mini-modal para o analista (ou supervisor) mudar o status/situação
+  // sem sair do dashboard.
+  alterarStatus: function(atendimento) {
+    var self = this;
+    var dd = App.dropdownData || {};
+    var statusList = dd.status || ['Pendente', 'Concluído'];
+    var situacoes = dd.situacoesPendencia || [];
+
+    var body = '<div class="form-group">';
+    body += '<label class="form-label">Status</label>';
+    body += '<select id="quick-status" class="form-control">';
+    statusList.forEach(function(s) {
+      body += '<option value="' + App.escapeHtml(s) + '"' + (atendimento.status === s ? ' selected' : '') + '>' + App.escapeHtml(s) + '</option>';
+    });
+    body += '</select></div>';
+    body += '<div class="form-group" id="quick-situacao-grupo">';
+    body += '<label class="form-label">Situação da pendência</label>';
+    body += '<select id="quick-situacao" class="form-control">';
+    body += '<option value="">Selecione</option>';
+    situacoes.forEach(function(s) {
+      body += '<option value="' + App.escapeHtml(s) + '"' + (atendimento.situacaoPendencia === s ? ' selected' : '') + '>' + App.escapeHtml(s) + '</option>';
+    });
+    body += '</select></div>';
+
+    Components.modal({
+      title: 'Alterar status — ' + App.escapeHtml(atendimento.numeroRA),
+      body: body,
+      confirmText: 'Salvar',
+      cancelText: 'Cancelar',
+      onConfirm: function() {
+        var status = document.getElementById('quick-status').value;
+        var situacao = document.getElementById('quick-situacao').value;
+        if (status === 'Pendente' && !situacao) {
+          Components.toast('Informe a situação da pendência.', 'warning');
+          return;
+        }
+        self.salvarStatus(atendimento.id, status, status === 'Pendente' ? situacao : '');
+      }
+    });
+
+    // Esconde a situação quando o status escolhido é "Concluído".
+    var statusSelect = document.getElementById('quick-status');
+    var grupoSituacao = document.getElementById('quick-situacao-grupo');
+    var syncSituacao = function() {
+      if (grupoSituacao) grupoSituacao.style.display = statusSelect.value === 'Pendente' ? '' : 'none';
+    };
+    if (statusSelect) {
+      statusSelect.addEventListener('change', syncSituacao);
+      syncSituacao();
     }
+  },
+
+  salvarStatus: function(id, status, situacao) {
+    var self = this;
+    Components.showLoading('Atualizando status...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        Components.hideLoading();
+        if (result && result.success) {
+          Components.toast('Status atualizado com sucesso!', 'success');
+          self.carregarDados();
+        } else {
+          Components.toast('Não foi possível atualizar o status.', 'error');
+        }
+      })
+      .withFailureHandler(function(err) {
+        Components.hideLoading();
+        Components.toast('Erro ao atualizar status: ' + err.message, 'error');
+      })
+      .alterarStatusAtendimento(id, status, situacao);
+  },
+
+  excluir: function(id) {
+    var self = this;
+    Components.showLoading('Excluindo atendimento...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        Components.hideLoading();
+        if (result && result.success) {
+          Components.toast('Atendimento excluído com sucesso.', 'success');
+          self.carregarDados();
+        } else {
+          Components.toast((result && result.message) || 'Erro ao excluir atendimento.', 'error');
+        }
+      })
+      .withFailureHandler(function(err) {
+        Components.hideLoading();
+        Components.toast('Erro ao excluir: ' + err.message, 'error');
+      })
+      .excluirAtendimento(id);
   }
 };
 </script>
