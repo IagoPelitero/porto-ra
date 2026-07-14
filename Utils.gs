@@ -1,11 +1,13 @@
 /**
  * ============================================================================
- * Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)
+ * Pelitero Labs Prisma RA — Sistema de Gestão de Atendimentos
  * ============================================================================
  * Arquivo: Utils.gs
  * Descrição: Funções utilitárias compartilhadas por todo o sistema.
  *            Geração de IDs, validação/formatação de CPF, sanitização,
  *            conversão objeto <-> linha da planilha e diferença de horas.
+ *
+ * Desenvolvido por Pelitero Labs.
  *
  * ------------------------------------------------------------------------
  * GUIA PARA QUEM ESTÁ COMEÇANDO

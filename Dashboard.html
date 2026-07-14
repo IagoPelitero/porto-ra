@@ -1,6 +1,8 @@
 <script>
 /* ============================================================
+   Pelitero Labs Prisma RA — Dashboard.html
    Pages.dashboard — Tela inicial (visão geral + lista de atendimentos)
+   Desenvolvido por Pelitero Labs.
    ------------------------------------------------------------
    GUIA PARA QUEM ESTÁ COMEÇANDO
    Primeira tela do sistema. Mostra:
@@ -220,7 +222,7 @@ Pages.dashboard = {
     var paginados = dados.slice(inicio, inicio + self.state.porPagina);
 
     var headers = [
-      { label: 'Protocolo Odin', field: 'numeroRA', sortable: false },
+      { label: 'Protocolo', field: 'numeroRA', sortable: false },
       { label: 'Cliente', field: 'cliente', sortable: false },
       { label: 'Produto', field: 'produto', sortable: false },
       { label: 'Canal', field: 'canal', sortable: false },

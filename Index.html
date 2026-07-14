@@ -4,8 +4,11 @@
   <base target="_top">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Portobank RA</title>
+  <title>Pelitero Labs Prisma RA</title>
   <!--
+    Pelitero Labs Prisma RA — Index.html (shell da aplicação)
+    Desenvolvido por Pelitero Labs.
+
     Este arquivo é apenas a "casca" (shell) do sistema: monta o layout
     (menu lateral e cabeçalho) e usa include() do HtmlService para colar
     dentro dele os outros arquivos .html do projeto, nesta ordem:
@@ -26,11 +29,12 @@
   <div class="app-container">
     <div id="sidebar-backdrop" class="sidebar-backdrop" onclick="App.closeMobileSidebar()"></div>
 
+    <!-- Menu lateral: navegação entre as páginas da SPA -->
     <nav class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="sidebar-logo">
           <div class="sidebar-logo-abbr">RA</div>
-          <span class="sidebar-logo-text">Portobank RA</span>
+          <span class="sidebar-logo-text">Prisma RA</span>
         </div>
         <button class="sidebar-toggle" onclick="App.toggleSidebar()" title="Recolher/expandir menu">
           <span class="material-icons">menu</span>
@@ -50,8 +54,9 @@
           <span class="material-icons">settings</span><span class="sidebar-label">Configurações</span>
         </li>
       </ul>
+      <!-- Rodapé do menu: identificação do produto -->
       <div class="sidebar-footer">
-        <div class="sidebar-version">Portobank RA</div>
+        <div class="sidebar-version">Pelitero Labs Prisma RA</div>
       </div>
     </nav>
 
@@ -59,7 +64,7 @@
       <header class="header">
         <div class="header-left">
           <span class="header-ra-badge">RA</span>
-          <span class="header-title">Portobank RA — Gestão de Atendimentos</span>
+          <span class="header-title">Prisma RA — Gestão de Atendimentos</span>
         </div>
         <div class="header-right">
           <div class="header-datetime">

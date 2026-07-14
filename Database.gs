@@ -1,9 +1,11 @@
 /**
  * ============================================================================
- * Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)
+ * Pelitero Labs Prisma RA — Sistema de Gestão de Atendimentos
  * ============================================================================
  * Arquivo: Database.gs
  * Descrição: Camada de acesso a dados (Data Access Layer).
+ *
+ * Desenvolvido por Pelitero Labs.
  *            Gerencia leitura/escrita na planilha Google Sheets com:
  *            - Cache usando CacheService para performance
  *            - Lock usando LockService para concorrência
@@ -58,20 +60,20 @@ function getSpreadsheet() {
     }
 
     const properties = PropertiesService.getScriptProperties();
-    const storedId = properties.getProperty('PORTO_RA_SPREADSHEET_ID');
+    const storedId = properties.getProperty(PROPERTY_KEYS.SPREADSHEET_ID);
     if (storedId) {
       return SpreadsheetApp.openById(storedId);
     }
 
     const active = SpreadsheetApp.getActiveSpreadsheet();
     if (active) {
-      properties.setProperty('PORTO_RA_SPREADSHEET_ID', active.getId());
+      properties.setProperty(PROPERTY_KEYS.SPREADSHEET_ID, active.getId());
       return active;
     }
 
     // Permite que o projeto também funcione como Apps Script independente.
-    const created = SpreadsheetApp.create('Portobank RA - Banco de Dados');
-    properties.setProperty('PORTO_RA_SPREADSHEET_ID', created.getId());
+    const created = SpreadsheetApp.create('Prisma RA - Banco de Dados');
+    properties.setProperty(PROPERTY_KEYS.SPREADSHEET_ID, created.getId());
     return created;
   } catch (e) {
     Logger.log('Erro ao abrir planilha: ' + e.message);
@@ -85,13 +87,34 @@ function getSpreadsheet() {
 
 /**
  * Executa a migração de estrutura somente quando a versão do esquema muda.
+ * Antes de qualquer verificação, migra as chaves de propriedades da marca
+ * anterior para que instalações existentes continuem funcionando.
  */
 function ensureDatabaseReady() {
+  migrateLegacyProperties_();
   const properties = PropertiesService.getScriptProperties();
-  if (properties.getProperty('PORTO_RA_SCHEMA_VERSION') !== CONFIG.SCHEMA_VERSION) {
+  if (properties.getProperty(PROPERTY_KEYS.SCHEMA_VERSION) !== CONFIG.SCHEMA_VERSION) {
     initializeSheets();
-    properties.setProperty('PORTO_RA_SCHEMA_VERSION', CONFIG.SCHEMA_VERSION);
+    properties.setProperty(PROPERTY_KEYS.SCHEMA_VERSION, CONFIG.SCHEMA_VERSION);
   }
+}
+
+/**
+ * Copia, uma única vez, os valores das Script Properties legadas
+ * (PORTO_RA_*) para as chaves atuais (PRISMA_RA_*) e remove as antigas.
+ * Garante que o rebranding não desvincule a planilha nem repita migrações
+ * de dados já executadas.
+ */
+function migrateLegacyProperties_() {
+  const properties = PropertiesService.getScriptProperties();
+  Object.keys(LEGACY_PROPERTY_KEYS).forEach(function(legacyKey) {
+    const value = properties.getProperty(legacyKey);
+    if (!value) return;
+    if (!properties.getProperty(LEGACY_PROPERTY_KEYS[legacyKey])) {
+      properties.setProperty(LEGACY_PROPERTY_KEYS[legacyKey], value);
+    }
+    properties.deleteProperty(legacyKey);
+  });
 }
 
 /**
@@ -157,7 +180,7 @@ function initializeSheets() {
     bootstrapSupervisor_();
     removeDefaultBlankSheet_(ss);
     invalidateAllCache();
-    PropertiesService.getScriptProperties().setProperty('PORTO_RA_SCHEMA_VERSION', CONFIG.SCHEMA_VERSION);
+    PropertiesService.getScriptProperties().setProperty(PROPERTY_KEYS.SCHEMA_VERSION, CONFIG.SCHEMA_VERSION);
     
     Logger.log('Inicialização das planilhas concluída com sucesso.');
   } catch (e) {
@@ -209,7 +232,7 @@ function migrateLegacyData_(ss) {
  */
 function migrateAtendimentosPorCanal_(ss) {
   const properties = PropertiesService.getScriptProperties();
-  const MIGRATION_FLAG = 'PORTO_RA_CANAL_MIGRATION';
+  const MIGRATION_FLAG = PROPERTY_KEYS.CANAL_MIGRATION;
   if (properties.getProperty(MIGRATION_FLAG) === '4.0.0') return;
 
   const legacySheet = ss.getSheetByName(CONFIG.LEGACY_ATENDIMENTOS_SHEET);
@@ -352,13 +375,14 @@ function promoteFirstAdmin_() {
 /**
  * Substitui, uma única vez por versão de catálogo, o conteúdo das abas
  * Produtos e Categorias pelos padrões atuais (DEFAULT_PRODUTOS e
- * DEFAULT_CATEGORIAS em Config.gs). Garante que instalações antigas
- * fiquem apenas com Cartão de Crédito e Conta Digital PortoBank.
+ * DEFAULT_CATEGORIAS em Config.gs) e normaliza os nomes de produto dos
+ * atendimentos já gravados para o catálogo atual.
+ * @param {Spreadsheet} ss - Planilha principal do sistema.
  */
 function reseedCatalog_(ss) {
   const properties = PropertiesService.getScriptProperties();
-  const CATALOG_VERSION = '3.1.0';
-  if (properties.getProperty('PORTO_RA_CATALOG_VERSION') === CATALOG_VERSION) return;
+  const CATALOG_VERSION = '4.1.0';
+  if (properties.getProperty(PROPERTY_KEYS.CATALOG_VERSION) === CATALOG_VERSION) return;
 
   const targets = [
     { name: CONFIG.SHEET_NAMES.PRODUTOS,   columns: COLUMNS.PRODUTOS,   defaults: DEFAULT_PRODUTOS },
@@ -379,7 +403,46 @@ function reseedCatalog_(ss) {
     Logger.log('Catálogo ressemeado: ' + cfg.name + ' (' + rows.length + ' registros)');
   });
 
-  properties.setProperty('PORTO_RA_CATALOG_VERSION', CATALOG_VERSION);
+  normalizeProdutosAtendimentos_(ss);
+  properties.setProperty(PROPERTY_KEYS.CATALOG_VERSION, CATALOG_VERSION);
+}
+
+/**
+ * Ajusta os nomes de produto dos atendimentos existentes (nas três abas por
+ * canal) para o catálogo atual — ex.: nomes legados de "Conta Digital"
+ * gravados antes do rebranding.
+ * @param {Spreadsheet} ss - Planilha principal do sistema.
+ */
+function normalizeProdutosAtendimentos_(ss) {
+  const contaNames = ['conta', 'conta digital', 'conta digital portobank'];
+  const cartaoNames = ['cartao', 'cartao de credito'];
+  const produtoIndex = COLUMNS.ATENDIMENTOS.indexOf('Produto');
+
+  CANAL_SHEETS.forEach(function(item) {
+    const sheet = ss.getSheetByName(CONFIG.SHEET_NAMES[item.sheetKey]);
+    if (!sheet || sheet.getLastRow() <= 1) return;
+    const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, COLUMNS.ATENDIMENTOS.length);
+    const rows = range.getValues();
+    let changed = false;
+
+    rows.forEach(function(row) {
+      const produto = normalizeText_(row[produtoIndex]);
+      if (!produto) return;
+      if (contaNames.indexOf(produto) !== -1 && row[produtoIndex] !== 'Conta Digital') {
+        row[produtoIndex] = 'Conta Digital';
+        changed = true;
+      } else if (cartaoNames.indexOf(produto) !== -1 && row[produtoIndex] !== 'Cartão de Crédito') {
+        row[produtoIndex] = 'Cartão de Crédito';
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      range.setValues(rows);
+      invalidateCache(sheet.getName());
+      Logger.log('Produtos normalizados em ' + sheet.getName() + ' para o catálogo atual.');
+    }
+  });
 }
 
 /**
@@ -483,7 +546,7 @@ function removeDefaultBlankSheet_(ss) {
  * @returns {string} Chave de cache
  */
 function getCacheKey(sheetName) {
-  return 'PORTO_RA_' + sheetName;
+  return 'PRISMA_RA_' + sheetName;
 }
 
 /**

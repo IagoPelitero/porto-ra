@@ -1,6 +1,8 @@
 <script>
 /* ============================================================
+   Pelitero Labs Prisma RA — Relatorios.html
    Pages.relatorios — Relatórios operacionais e exportações
+   Desenvolvido por Pelitero Labs.
    ------------------------------------------------------------
    GUIA PARA QUEM ESTÁ COMEÇANDO
    Esta é a ÚNICA tela com filtros (período, analista, produto, categoria,
@@ -78,7 +80,7 @@ Pages.relatorios = {
     // Row 3: Protocolo + Cliente + CPF
     html += '  <div class="form-row">';
     html += '    <div class="form-group">';
-    html += '      <label class="form-label">Protocolo Odin</label>';
+    html += '      <label class="form-label">Protocolo</label>';
     html += '      <input type="text" id="rel-protocolo" class="form-control" placeholder="Número do protocolo" />';
     html += '    </div>';
     html += '    <div class="form-group">';
@@ -226,7 +228,7 @@ Pages.relatorios = {
   renderTabela: function (dados) {
     var self = this;
     var headers = [
-      { key: 'numeroRA', label: 'Protocolo Odin' },
+      { key: 'numeroRA', label: 'Protocolo' },
       { key: 'cliente', label: 'Cliente' },
       { key: 'cpf', label: 'CPF' },
       { key: 'produto', label: 'Produto' },
@@ -350,7 +352,7 @@ Pages.relatorios = {
   _linhasExportacao: function () {
     return this._reportData.map(function(d) {
       return {
-        'Protocolo Odin': d.numeroRA || '',
+        'Protocolo': d.numeroRA || '',
         'Cliente': d.cliente || '',
         'CPF': d.cpf || '',
         'Produto': d.produto || '',
@@ -373,7 +375,7 @@ Pages.relatorios = {
       return;
     }
     var linhas = this._linhasExportacao();
-    var nomeBase = 'relatorio_portobank_ra_' + new Date().toISOString().slice(0, 10);
+    var nomeBase = 'relatorio_prisma_ra_' + new Date().toISOString().slice(0, 10);
 
     if (window.XLSX) {
       var sheet = XLSX.utils.json_to_sheet(linhas);
@@ -420,13 +422,13 @@ Pages.relatorios = {
       var jsPDF = window.jspdf.jsPDF;
       var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
-      // Header Portobank
+      // Cabeçalho do PDF com a identidade do produto
       doc.setFillColor(0, 55, 125);
       doc.rect(0, 0, 297, 28, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(18);
       doc.setFont(undefined, 'bold');
-      doc.text('Portobank RA - Relatório de Atendimentos', 14, 14);
+      doc.text('Pelitero Labs Prisma RA - Relatório de Atendimentos', 14, 14);
       doc.setFontSize(10);
       doc.setFont(undefined, 'normal');
       doc.text('Gerado em: ' + new Date().toLocaleString('pt-BR'), 14, 22);
@@ -443,7 +445,7 @@ Pages.relatorios = {
       doc.text('Pendentes: ' + r.pendentes, 160, 45);
       doc.text('Tempo Médio: ' + r.tempoMedio + 'h', 220, 45);
 
-      var cabecalhos = ['Protocolo Odin', 'Cliente', 'CPF', 'Produto', 'Categoria', 'Status', 'Aguardando', 'Canal', 'Responsável', 'Dt Abertura', 'Dt Conclusão', 'Tempo'];
+      var cabecalhos = ['Protocolo', 'Cliente', 'CPF', 'Produto', 'Categoria', 'Status', 'Aguardando', 'Canal', 'Responsável', 'Dt Abertura', 'Dt Conclusão', 'Tempo'];
       var linhasTabela = dados.map(function(d) {
         return [
           String(d.numeroRA || ''),
@@ -477,10 +479,10 @@ Pages.relatorios = {
         doc.setPage(p);
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
-        doc.text('Portobank RA | Página ' + p + ' de ' + pageCount, 14, doc.internal.pageSize.height - 8);
+        doc.text('Pelitero Labs Prisma RA | Página ' + p + ' de ' + pageCount, 14, doc.internal.pageSize.height - 8);
       }
 
-      doc.save('relatorio_portobank_ra_' + new Date().toISOString().slice(0, 10) + '.pdf');
+      doc.save('relatorio_prisma_ra_' + new Date().toISOString().slice(0, 10) + '.pdf');
       Components.toast('PDF exportado com sucesso!', 'success');
     } catch (e) {
       Components.toast('Erro ao exportar PDF: ' + e.message, 'error');

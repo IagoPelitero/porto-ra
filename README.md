@@ -1,237 +1,45 @@
-# Sistema RA — Gestão de Atendimentos
+# Pelitero Labs Prisma RA
 
-## Descrição do projeto
+Sistema de gestão de atendimentos multicanal construído sobre Google Apps Script e
+Google Sheets — sem servidores, sem banco de dados externo e sem custo de infraestrutura.
 
-Sistema da célula **RA** para registro, distribuição e acompanhamento das manifestações
-recebidas pelos canais **Reclame Aqui**, **Chat Privado do Reclame Aqui** e
-**SAC Preventivo**, até a sua conclusão. Permite que analistas cadastrem e acompanhem seus
-próprios atendimentos, que supervisores distribuam e reatribuam atendimentos entre a equipe
-e que o ADM administre todo o sistema — usuários, campos do formulário e configurações —
-tudo com histórico auditável de alterações.
+Desenvolvido por **Pelitero Labs**.
 
-O projeto roda inteiramente na plataforma **Google Apps Script**, usando uma planilha do
-**Google Sheets** como banco de dados, sem nenhuma infraestrutura externa.
+---
 
-## Tecnologias
+## Sobre
 
-- **Google Apps Script** (JavaScript no servidor, runtime V8)
-- **Google Sheets** (persistência dos dados)
-- **HTML5 / CSS3 / JavaScript** (frontend, SPA sem frameworks)
-- **SheetJS** e **jsPDF** (via CDN, apenas para exportação de relatórios em Excel/PDF)
+O **Prisma RA** é um produto da Pelitero Labs para equipes que tratam manifestações de
+clientes recebidas por múltiplos canais — no cenário de exemplo, uma célula de
+**Reclame Aqui**, com os canais *Reclame Aqui*, *Chat Privado do Reclame Aqui* e
+*SAC Preventivo*. O sistema registra, distribui e acompanha cada atendimento até a
+conclusão, com trilha de auditoria completa.
 
-## Estrutura do projeto
+### Objetivos
 
-O projeto é "flat" (todos os arquivos na raiz), como exigido pelo Google Apps Script/clasp.
+- Centralizar o registro e o acompanhamento de atendimentos multicanal;
+- Dar a cada perfil (ADM, Supervisor, Analista) exatamente o acesso de que precisa;
+- Permitir que o formulário de cadastro seja **configurável sem alteração de código**;
+- Manter histórico auditável de toda alteração (quem, quando, o quê e por quê);
+- Rodar 100% dentro do Google Workspace, sem infraestrutura adicional.
 
-### Backend (`.gs`)
+### Tecnologias utilizadas
 
-| Arquivo | Responsabilidade |
+| Tecnologia | Papel |
 | --- | --- |
-| [Code.gs](Code.gs) | Ponto de entrada do Web App (`doGet`), inclusão de arquivos HTML (`include`), identificação do usuário logado (`getCurrentUser`), menu da planilha (`onOpen`, `abrirSistema`) e funções de setup/manutenção. |
-| [Config.gs](Config.gs) | Constantes de configuração (`CONFIG`), colunas de cada aba (`COLUMNS`), listas fixas do fluxo (`STATUS_LIST`, `SITUACOES_PENDENCIA`, `CANAIS_LIST`, `CANAL_SHEETS`) e dados padrão (catálogo e campos do formulário). |
-| [Database.gs](Database.gs) | Camada de acesso a dados: leitura/escrita no Google Sheets, cache (`CacheService`), lock de concorrência (`LockService`), inicialização automática das planilhas e migração de dados legados (`migrateLegacyData_`). |
-| [Services.gs](Services.gs) | Regras de negócio: CRUD de atendimentos nas abas por canal, alteração rápida de status, timeline/histórico, dashboard, relatórios, configuração dinâmica do formulário e **controle de permissões (ADM x Supervisor x Analista)**. |
-| [Utils.gs](Utils.gs) | Utilitários: geração de IDs, validação/formatação de CPF, sanitização de entradas e conversão de dados. |
+| **Google Apps Script (V8)** | Backend: regras de negócio, permissões e persistência |
+| **Google Sheets** | Banco de dados (abas como tabelas) |
+| **HTML5 / CSS3 / JavaScript (ES6 no servidor, ES5 no cliente)** | Frontend SPA sem frameworks |
+| **HtmlService / google.script.run** | Ponte navegador ↔ servidor |
+| **CacheService / LockService / PropertiesService** | Performance, concorrência e versionamento |
+| **SheetJS (xlsx) e jsPDF** | Exportação de relatórios em Excel e PDF (via CDN) |
 
-### Frontend (`.html`)
-
-O frontend é uma SPA montada pelo Apps Script através de
-`HtmlService.createTemplateFromFile('Index')`. O [Index.html](Index.html) é a "casca" do
-sistema (menu lateral e cabeçalho) e usa `<?!= include('Arquivo') ?>` para colar os demais
-arquivos dentro dele, nesta ordem: `Styles` → `Scripts` → `Components` → páginas.
-
-| Arquivo | Responsabilidade |
-| --- | --- |
-| [Index.html](Index.html) | Casca do sistema: layout e inclusão dos demais arquivos HTML. |
-| [Styles.html](Styles.html) | Design system e estilos globais (CSS). |
-| [Scripts.html](Scripts.html) | Núcleo do frontend (`App`): navegação entre páginas, usuário logado, helpers compartilhados (datas, CPF, escapeHtml) e visibilidade por perfil (`data-supervisor-only`, `data-admin-only`). |
-| [Components.html](Components.html) | Componentes de UI reutilizáveis: modal, toast, badges, tabela, paginação, timeline, KPIs. |
-| [Dashboard.html](Dashboard.html) | Página inicial: KPIs gerais, **indicadores e gráficos por canal** e lista de atendimentos com alteração de status direto na tabela. |
-| [NovoAtendimento.html](NovoAtendimento.html) | Cadastro e edição de atendimentos com **formulário montado dinamicamente** a partir da aba ConfigCampos. |
-| [Relatorios.html](Relatorios.html) | Única tela com filtros; geração de relatórios com exportação (Excel/CSV e PDF) e painel de produtividade. |
-| [Configuracoes.html](Configuracoes.html) | Administração de Produtos, Categorias, Usuários e Campos do formulário — acesso restrito por perfil. |
-
-### Outros arquivos
-
-- [appsscript.json](appsscript.json) — manifesto do Apps Script (timezone, escopos OAuth, runtime V8).
-- [.clasp.json.example](.clasp.json.example) — modelo para o arquivo `.clasp.json` (não versionado).
-- [.claspignore](.claspignore) — define que apenas `*.gs`, `*.html` e `appsscript.json` são sincronizados via clasp.
-
-## Perfis de usuário
-
-O usuário logado é identificado automaticamente via `Session.getActiveUser().getEmail()`
-e cruzado com a aba **Usuários** para obter nome e perfil (`getActor_()` em
-[Services.gs](Services.gs)). Não há tela de login: o próprio Google Workspace autentica
-o usuário ao abrir o Web App. Todas as regras abaixo são aplicadas **no backend**
-(`isAdminProfile_`, `isSupervisorProfile_`, `canAccessAtendimento_`,
-`restrictToOwnerIfNeeded_`), não apenas escondidas na interface.
-
-### ADM
-
-Acesso total ao sistema:
-
-- Visualiza, cria, edita, exclui e reatribui **qualquer** atendimento.
-- Escolhe o analista responsável no cadastro/edição.
-- **Gerencia usuários** (criação, perfil, ativação/desativação) — exclusivo do ADM.
-- **Configura os campos da tela Novo Atendimento** (aba ConfigCampos) — exclusivo do ADM.
-- Administra produtos e categorias e acessa todos os dashboards e relatórios.
-- O primeiro usuário do sistema é criado automaticamente como ADM; o sistema impede
-  desativar/demover o último ADM ativo.
-
-### Supervisor
-
-Praticamente os mesmos poderes do ADM **em relação aos atendimentos**:
-
-- Visualiza os atendimentos de **todos** os analistas.
-- Cria atendimentos e pode **delegá-los a um analista** (campo "Responsável").
-- Edita qualquer atendimento e reatribui entre analistas.
-- Consulta indicadores e exporta relatórios.
-- Administra produtos e categorias.
-
-**Não pode**: gerenciar usuários nem alterar configurações críticas (campos do
-formulário). Essas funções permanecem exclusivas do ADM.
-
-### Analista
-
-- Visualiza **apenas** os atendimentos que criou ou dos quais é responsável.
-- Cria atendimentos — o **responsável é preenchido automaticamente** com o usuário logado.
-- Edita apenas os próprios atendimentos, atualiza status e insere observações.
-- Não visualiza atendimentos criados por outros analistas.
-
-## Organização por canais
-
-O campo **Canal** continua existindo no formulário, mas o armazenamento é separado por
-abas do Google Sheets — a gravação é automática conforme o canal selecionado:
-
-| Canal selecionado | Aba de gravação |
-| --- | --- |
-| Reclame Aqui | **ReclameAqui** |
-| Chat Privado | **ChatPrivadoRA** |
-| SAC Preventivo | **SACPreventivo** |
-
-O **Chat Privado faz parte do Reclame Aqui**, porém possui aba própria para facilitar o
-controle operacional. A pesquisa, o dashboard e os relatórios consultam **as três abas
-simultaneamente** e apresentam os resultados em uma única lista — o usuário nunca precisa
-saber onde os dados estão armazenados. Se o canal de um atendimento for alterado na
-edição, o registro é **movido automaticamente** para a aba do novo canal.
-
-## Formulário "Novo Atendimento" configurável
-
-A tela Novo Atendimento não possui estrutura fixa: os campos são montados a partir da aba
-**ConfigCampos**, administrada pelo ADM na tela de Configurações → *Campos do formulário*.
-
-| Campo | Exibir | Obrigatório |
-| --- | --- | --- |
-| Data | Sim | Sim |
-| Protocolo | Sim | Sim |
-| Nome do cliente | Sim | Sim |
-| CPF | Sim | Sim |
-| Produto | Sim | Não |
-| Categoria | Sim | Não |
-| Canal | Sim | Sim |
-| Observações | Sim | Não |
-| Agência | Não | Não |
-
-O ADM pode:
-
-- **Adicionar campos novos** (texto, data, número ou texto longo) — os valores são
-  gravados na coluna `CamposExtras` (JSON) da aba do canal, sem alterar o esquema;
-- **Ocultar** campos (desmarcar "Exibir") e **definir obrigatoriedade**;
-- **Reordenar** os campos (coluna Ordem).
-
-Nenhuma alteração de código é necessária para adicionar ou remover campos. O **Canal** é
-um campo bloqueado (sempre exibido e obrigatório), pois define a aba de gravação. A
-validação de obrigatoriedade é aplicada no navegador **e** no servidor, a partir da mesma
-configuração.
-
-## Fluxo do atendimento
-
-Status fixos do fluxo: **Pendente**, **Em análise** e **Concluído**.
-
-1. **Cadastro** — o formulário é montado conforme a ConfigCampos. CPF é validado e o
-   protocolo tem duplicidade verificada em tempo real (nas três abas de canal).
-2. **Status "Pendente"** — o campo **"Aguardando Retorno de"** aparece e passa a ser
-   obrigatório, com duas opções: **Área** ou **Cliente**.
-3. **Status "Em análise" ou "Concluído"** — o campo "Aguardando Retorno de" fica oculto.
-   Ao concluir, data e tempo de resolução são calculados automaticamente.
-4. **Acompanhamento** — pelo Dashboard, o usuário altera o status/situação diretamente na
-   tabela, sem abrir o formulário.
-5. **Timeline e Histórico** — toda criação, delegação, mudança de status ou edição gera um
-   evento na Timeline e, quando altera um campo, uma linha imutável no Histórico
-   (com justificativa obrigatória em edições pelo formulário).
-6. **Relatórios** — única tela com filtros (período, analista, produto, categoria, status,
-   aguardando retorno, canal, protocolo, cliente e CPF), com exportação Excel/CSV e PDF e
-   painel de produtividade por analista.
-7. **Exclusão** — é lógica (campo `Excluido`), preservando o histórico para auditoria.
-
-## Dashboard
-
-Os indicadores consideram simultaneamente as abas **ReclameAqui**, **ChatPrivadoRA** e
-**SACPreventivo**:
-
-- KPIs gerais: total, pendentes, em análise, concluídos e pendências por
-  "Aguardando Retorno de" (Área/Cliente);
-- **Gráficos separados por canal**: total, pendentes, em análise e concluídos de cada
-  canal, com barras proporcionais.
-
-## Estrutura do banco de dados (abas do Google Sheets)
-
-Todas as abas são criadas e mantidas automaticamente por `initializeSheets()` (em
-[Database.gs](Database.gs)), com base nas definições de [Config.gs](Config.gs).
-
-| Aba | Conteúdo |
-| --- | --- |
-| **ReclameAqui / ChatPrivadoRA / SACPreventivo** | Atendimentos de cada canal (protocolo, cliente, CPF, produto, categoria, canal, status, aguardando retorno, responsável, datas, observações, campos extras e auditoria de criação/exclusão). As três abas compartilham o mesmo conjunto de colunas. |
-| **ConfigCampos** | Configuração dinâmica do formulário Novo Atendimento (campo, rótulo, tipo, exibir, obrigatório, ordem). |
-| **Timeline** | Eventos cronológicos de cada atendimento (criação, mudança de status, delegação, observações, exclusão). |
-| **Histórico** | Registro imutável (somente inserção) de toda alteração de campo, com valor anterior/novo, usuário e justificativa. |
-| **Usuários** | Cadastro de usuários (nome, e-mail, perfil ADM/Supervisor/Analista, equipe, status). |
-| **Produtos / Categorias** | Listas administráveis usadas para classificar atendimentos. |
-
-Instalações antigas são migradas automaticamente na primeira execução: os atendimentos da
-aba legada `Atendimentos` são movidos para a aba do seu canal, os status antigos são
-normalizados para o novo fluxo (Pendente / Em análise / Concluído + Área/Cliente) e o
-primeiro supervisor ativo é promovido a ADM.
-
-## Como executar / publicar
-
-### Pré-requisitos
-
-```
-npm install -g @google/clasp
-clasp login
-```
-
-### Clonar/associar um projeto existente
-
-```
-clasp clone <SCRIPT_ID>
-```
-
-Ou, para um projeto novo, copie [.clasp.json.example](.clasp.json.example) para `.clasp.json`
-e preencha o `scriptId` do seu projeto Apps Script.
-
-### Enviar/trazer alterações
-
-```
-clasp push   # envia o código para o Apps Script
-clasp pull   # traz alterações feitas no editor online
-```
-
-### Publicar (implantar como Web App)
-
-1. `clasp push` para enviar o código mais recente.
-2. `clasp deploy` (ou pelo editor: **Implantar → Nova implantação → Aplicativo da Web**).
-3. Configurar a implantação com:
-   - **Executar como:** Usuário que acessa o aplicativo da Web (necessário para que
-     `Session.getActiveUser()` identifique corretamente cada usuário e perfil).
-   - **Quem pode acessar:** restrito à organização (nunca "Qualquer pessoa").
-4. Acessar a URL do Web App gerada.
-
-Ao abrir a URL, o sistema inicializa automaticamente as planilhas (`ensureDatabaseReady`)
-e executa as migrações pendentes.
+---
 
 ## Arquitetura
+
+O projeto segue uma separação clara de camadas, mesmo dentro das restrições do Apps
+Script (arquivos "flat" na raiz):
 
 ```mermaid
 flowchart LR
@@ -260,30 +68,247 @@ flowchart LR
   ServicesGs --> UtilsGs
 ```
 
-- O navegador nunca acessa o Google Sheets diretamente: toda comunicação passa por
-  `google.script.run` chamando funções públicas de [Services.gs](Services.gs).
-- [Services.gs](Services.gs) aplica as regras de negócio e permissão, e delega leitura/escrita
-  para [Database.gs](Database.gs), que usa `CacheService` (performance) e `LockService`
-  (concorrência segura) antes de tocar na planilha.
+**Fluxo da aplicação:**
 
-## Performance
+1. O usuário abre a URL do Web App; o Apps Script executa `doGet()` (Code.gs), que
+   inicializa o banco (`ensureDatabaseReady`) e monta o `Index.html`;
+2. O `Index.html` inclui estilos, scripts, componentes e páginas (SPA);
+3. `App.init()` (Scripts.html) busca os dados de apoio em uma única chamada
+   (`getBootstrapData`) e desenha a primeira página;
+4. Cada página conversa com o servidor exclusivamente via `google.script.run`,
+   chamando funções públicas de `Services.gs`;
+5. `Services.gs` aplica permissões e regras de negócio e delega leitura/escrita a
+   `Database.gs`, que usa cache e lock antes de tocar na planilha.
 
-- **Uma chamada por tela**: o Dashboard carrega KPIs + indicadores por canal + lista de
-  atendimentos em uma única requisição (`getDashboardData`), e os dados de apoio dos
-  formulários/filtros vêm de uma única chamada na inicialização (`getBootstrapData`).
-- **Cache**: leituras de planilha passam pelo `CacheService` (5 min), invalidado a cada escrita.
-- **Escritas atômicas**: a verificação de protocolo duplicado e a gravação acontecem sob o
-  mesmo `LockService`, nas três abas de canal.
-- **Skeletons em vez de overlay**: as telas mostram esqueletos de carregamento e mantêm a
-  interface responsiva; o overlay bloqueante é usado apenas em gravações.
+O navegador **nunca** acessa o Google Sheets diretamente.
 
-## Observações de segurança
+---
 
-- Identificação do usuário via `Session.getActiveUser().getEmail()`.
-- Validação de permissão (ADM/Supervisor/Analista) aplicada no backend, não apenas na interface.
-- Gestão de usuários e dos campos do formulário exigem perfil ADM no servidor (`requireAdmin_`).
-- Histórico (`Histórico`) é somente-inserção, sem exclusão.
-- Exclusão de atendimentos é lógica (mantém rastro para auditoria).
-- Entradas sanitizadas no servidor (`sanitizeInput`) e HTML escapado no cliente (`App.escapeHtml`).
-- Ao implantar, configure o Web App para **não** liberar acesso anônimo — restrinja à
-  organização/domínio.
+## Estrutura do projeto
+
+### Backend (`.gs`)
+
+| Arquivo | Responsabilidade |
+| --- | --- |
+| [Code.gs](Code.gs) | Ponto de entrada do Web App (`doGet`), inclusão de HTML (`include`), usuário logado (`getCurrentUser`), menu da planilha e funções de setup/manutenção. |
+| [Config.gs](Config.gs) | Configuração central: constantes (`CONFIG`, `PROPERTY_KEYS`), colunas de cada aba (`COLUMNS`), listas fixas do fluxo (`STATUS_LIST`, `SITUACOES_PENDENCIA`, `CANAIS_LIST`, `CANAL_SHEETS`) e dados padrão (catálogo e campos do formulário). |
+| [Database.gs](Database.gs) | Camada de acesso a dados: leitura/escrita no Google Sheets, cache (`CacheService`), lock (`LockService`), criação automática das abas e migrações versionadas de dados legados. |
+| [Services.gs](Services.gs) | Regras de negócio: CRUD de atendimentos nas abas por canal, formulário dinâmico, timeline/histórico, dashboard, relatórios, configurações e **controle de permissões**. |
+| [Utils.gs](Utils.gs) | Funções auxiliares puras: geração de IDs, validação/formatação de CPF, sanitização e conversão objeto ↔ linha. |
+
+### Frontend (`.html`)
+
+| Arquivo | Responsabilidade |
+| --- | --- |
+| [Index.html](Index.html) | Shell da aplicação: layout (sidebar + header) e inclusão dos demais arquivos. |
+| [Styles.html](Styles.html) | Design system e estilos globais (variáveis CSS, layout, responsividade, cards, tabelas). |
+| [Scripts.html](Scripts.html) | Núcleo do frontend (`App`): navegação SPA, usuário logado, visibilidade por perfil e helpers compartilhados. |
+| [Components.html](Components.html) | Componentes de UI reutilizáveis: modal, toast, badges, tabela, paginação, timeline, KPIs. |
+| [Dashboard.html](Dashboard.html) | Dashboard principal: KPIs, indicadores/gráficos por canal e lista de atendimentos com ação rápida de status. |
+| [NovoAtendimento.html](NovoAtendimento.html) | Cadastro/edição de atendimentos com formulário montado dinamicamente (ConfigCampos). |
+| [Relatorios.html](Relatorios.html) | Filtros, relatórios, exportação Excel/CSV/PDF e painel de produtividade. |
+| [Configuracoes.html](Configuracoes.html) | Administração de Produtos, Categorias, Usuários e Campos do formulário, com acesso por perfil. |
+
+### Outros arquivos
+
+| Arquivo | Papel |
+| --- | --- |
+| [appsscript.json](appsscript.json) | Manifesto do Apps Script (timezone, escopos OAuth, runtime V8). |
+| [.clasp.json.example](.clasp.json.example) | Modelo do `.clasp.json` (o real não é versionado). |
+| [.claspignore](.claspignore) | Sincroniza via clasp apenas `*.gs`, `*.html` e `appsscript.json`. |
+| [.gitignore](.gitignore) | Exclui credenciais e artefatos locais do versionamento. |
+
+---
+
+## Funcionalidades
+
+- Cadastro, edição, exclusão (lógica) e acompanhamento de atendimentos;
+- **Formulário configurável** pelo ADM sem alteração de código (aba ConfigCampos);
+- Armazenamento **separado por canal** com consulta consolidada e transparente;
+- Alteração rápida de status direto na tabela do Dashboard;
+- Delegação/reatribuição de atendimentos entre analistas (Supervisor/ADM);
+- Verificação de protocolo duplicado em tempo real (nas três abas);
+- Validação de CPF no cliente e no servidor;
+- Timeline por atendimento e histórico imutável de alterações com justificativa;
+- Dashboard com KPIs e gráficos por canal;
+- Relatórios com filtros combinados, exportação Excel/CSV/PDF e ranking de produtividade;
+- Controle de acesso por perfil aplicado no backend;
+- Migrações automáticas e versionadas do banco (schema, catálogo e propriedades).
+
+---
+
+## Fluxo do atendimento
+
+Status fixos do fluxo: **Pendente → Em análise → Concluído**.
+
+1. **Cadastro** — o formulário é montado conforme a ConfigCampos; o registro é gravado
+   na aba do canal selecionado. Analista é definido automaticamente como responsável;
+   Supervisor/ADM podem delegar.
+2. **Tratativa** — a equipe acompanha pelo Dashboard e altera status/observações sem
+   abrir o formulário completo.
+3. **Pendência** — quando o status é **Pendente**, o campo **"Aguardando Retorno de"**
+   torna-se obrigatório, com duas opções: **Área** ou **Cliente**. Nos demais status o
+   campo fica oculto.
+4. **Conclusão** — ao marcar **Concluído**, o sistema grava data de resolução e calcula
+   o tempo de resolução em horas. Reabrir o atendimento limpa esses campos.
+
+Toda criação, mudança de status, delegação, observação ou edição gera eventos na
+**Timeline**; alterações de campo geram linhas imutáveis no **Histórico**, com
+justificativa obrigatória em edições pelo formulário.
+
+---
+
+## Controle de usuários
+
+A identificação é automática: o e-mail da sessão Google (`Session.getActiveUser()`) é
+cruzado com a aba **Usuários**. Não há tela de login. Todas as regras são aplicadas
+**no backend**, não apenas escondidas na interface.
+
+| Capacidade | ADM | Supervisor | Analista |
+| --- | :-: | :-: | :-: |
+| Ver todos os atendimentos | ✅ | ✅ | ❌ (só os seus) |
+| Criar atendimentos | ✅ | ✅ | ✅ |
+| Editar qualquer atendimento | ✅ | ✅ | ❌ (só os seus) |
+| Reatribuir/delegar a analistas | ✅ | ✅ | ❌ |
+| Dashboards e relatórios | ✅ | ✅ | ✅ (só os seus dados) |
+| Administrar produtos/categorias | ✅ | ✅ | ❌ |
+| **Gerenciar usuários** | ✅ | ❌ | ❌ |
+| **Configurar campos do formulário** | ✅ | ❌ | ❌ |
+
+O primeiro usuário é criado automaticamente como **ADM** e o sistema impede a
+desativação/demoção do último ADM ativo.
+
+---
+
+## Banco de dados (abas do Google Sheets)
+
+Todas as abas são criadas e mantidas por `initializeSheets()` (Database.gs), a partir
+das definições de colunas em Config.gs.
+
+| Aba | Conteúdo |
+| --- | --- |
+| **ReclameAqui / ChatPrivadoRA / SACPreventivo** | Atendimentos de cada canal — mesmas colunas nas três abas (protocolo, cliente, CPF, produto, categoria, canal, status, aguardando retorno, responsável, datas, observações, `CamposExtras` em JSON e auditoria de criação/exclusão). O *Chat Privado* faz parte do Reclame Aqui, mas tem aba própria para controle operacional. |
+| **ConfigCampos** | Configuração dinâmica do formulário (campo, rótulo, tipo, exibir, obrigatório, ordem, base/bloqueado). |
+| **Timeline** | Eventos cronológicos de cada atendimento. |
+| **Histórico** | Registro imutável (somente inserção) de alterações, com valor anterior/novo, usuário e justificativa. |
+| **Usuários** | Nome, e-mail, perfil (ADM/Supervisor/Analista), equipe e status. |
+| **Produtos / Categorias** | Catálogo administrável para classificação dos atendimentos. |
+
+**Migrações automáticas** (executadas uma única vez, controladas por Script
+Properties versionadas): estrutura das abas (`SCHEMA_VERSION`), movimentação dos
+atendimentos legados para as abas por canal, normalização de status e catálogo, e
+migração das chaves de propriedades de versões anteriores do produto.
+
+---
+
+## Segurança
+
+- **Permissões no servidor**: toda função pública de `Services.gs` revalida o perfil do
+  usuário (`getActor_`, `canAccessAtendimento_`, `requireSupervisor_`, `requireAdmin_`)
+  — esconder um botão no frontend nunca é a única barreira;
+- **Controle por usuário**: Analista só acessa registros dos quais é criador ou
+  responsável, em consultas **e** gravações;
+- **Registro de histórico**: aba Histórico é somente-inserção; exclusões de
+  atendimento são lógicas, preservando a trilha de auditoria;
+- **Sanitização**: entradas passam por `sanitizeInput` no servidor e todo HTML montado
+  no cliente usa `App.escapeHtml` (prevenção de XSS);
+- **Concorrência**: gravações críticas (protocolo único, movimentação entre abas)
+  acontecem sob `LockService`;
+- **Implantação**: o Web App deve executar "como o usuário que acessa" e com acesso
+  restrito à organização — nunca anônimo.
+
+---
+
+## Dashboard
+
+Indicadores consolidados das três abas de canal, em uma única chamada ao servidor:
+
+- **KPIs gerais**: total de atendimentos, pendentes, em análise, concluídos e
+  pendências por "Aguardando Retorno de" (Área/Cliente);
+- **Por canal**: cartões com total e barras proporcionais de pendentes / em análise /
+  concluídos para Reclame Aqui, Chat Privado e SAC Preventivo;
+- **Lista operacional**: busca instantânea, paginação e ações rápidas (alterar status,
+  editar, excluir) direto na tabela.
+
+---
+
+## Como executar
+
+### Pré-requisitos
+
+```bash
+npm install -g @google/clasp
+clasp login
+```
+
+### Associar a um projeto Apps Script
+
+```bash
+# Projeto existente:
+clasp clone <SCRIPT_ID>
+
+# Ou projeto novo: copie o modelo e preencha o scriptId
+cp .clasp.json.example .clasp.json
+```
+
+### Sincronizar o código
+
+```bash
+clasp push   # envia o código local para o Apps Script
+clasp pull   # traz alterações feitas no editor online
+```
+
+### Deploy / Publicação
+
+1. `clasp push` para enviar o código mais recente;
+2. `clasp deploy` (ou, pelo editor: **Implantar → Nova implantação → Aplicativo da Web**);
+3. Configurar a implantação:
+   - **Executar como:** usuário que acessa o aplicativo (necessário para identificar
+     cada usuário e seu perfil);
+   - **Quem pode acessar:** restrito à organização;
+4. Acessar a URL gerada — na primeira abertura o sistema cria as abas e executa as
+   migrações automaticamente (`ensureDatabaseReady`).
+
+---
+
+## Estrutura de pastas
+
+O Google Apps Script exige estrutura "flat" (todos os arquivos na raiz):
+
+```
+pelitero-labs-prisma-RA/
+├── appsscript.json        # Manifesto do Apps Script
+├── Code.gs                # Ponto de entrada (doGet, include, menu)
+├── Config.gs              # Constantes, colunas e listas fixas do fluxo
+├── Database.gs            # Acesso a dados, cache, lock e migrações
+├── Services.gs            # Regras de negócio e permissões
+├── Utils.gs               # Funções auxiliares puras
+├── Index.html             # Shell da SPA
+├── Styles.html            # Design system (CSS)
+├── Scripts.html           # Núcleo do frontend (App)
+├── Components.html        # Componentes de UI reutilizáveis
+├── Dashboard.html         # Página: dashboard
+├── NovoAtendimento.html   # Página: cadastro/edição (formulário dinâmico)
+├── Relatorios.html        # Página: relatórios e exportações
+├── Configuracoes.html     # Página: administração
+├── .clasp.json.example    # Modelo de configuração do clasp
+├── .claspignore           # Arquivos sincronizados com o Apps Script
+└── .gitignore             # Arquivos fora do versionamento
+```
+
+---
+
+## Melhorias futuras
+
+- **Gráficos interativos com Chart.js** (evolução temporal, comparativo entre canais);
+- Notificações por e-mail em delegações e estouro de prazo (SLA);
+- Metas e SLA configuráveis por canal, com alertas visuais no Dashboard;
+- Exportação agendada de relatórios (triggers de tempo do Apps Script);
+- Tema escuro e preferências por usuário;
+- Suíte de testes automatizados para as regras de negócio (`Services.gs`);
+- Internacionalização (i18n) da interface;
+- Modo multi-célula: múltiplas equipes isoladas na mesma instalação.
+
+---
+
+**Pelitero Labs** — soluções sob medida em automação e produtividade.

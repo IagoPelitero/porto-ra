@@ -1,9 +1,11 @@
 /**
  * ============================================================================
- * Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)
+ * Pelitero Labs Prisma RA — Sistema de Gestão de Atendimentos
  * ============================================================================
  * Arquivo: Code.gs
  * Descrição: Ponto de entrada do aplicativo Google Apps Script.
+ *
+ * Desenvolvido por Pelitero Labs.
  *            - doGet(): Serve o frontend como Web App
  *            - include(): Inclui arquivos HTML parciais
  *            - getCurrentUser(): Retorna informações do usuário logado
@@ -62,17 +64,16 @@ function doGet(e) {
     const template = HtmlService.createTemplateFromFile('Index');
     const output = template.evaluate();
     
-    output.setTitle('Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)');
+    output.setTitle('Pelitero Labs Prisma RA — Sistema de Gestão de Atendimentos');
     output.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
     output.addMetaTag('viewport', 'width=device-width, initial-scale=1');
-    output.setFaviconUrl('https://www.portoseguro.com.br/favicon.ico');
-    
+
     return output;
   } catch (e) {
     Logger.log('Erro no doGet: ' + e.message);
     return HtmlService.createHtmlOutput(
       '<h1>Erro ao carregar o sistema</h1>' +
-      '<p>Ocorreu um erro ao inicializar o Portobank RA. ' +
+      '<p>Ocorreu um erro ao inicializar o Prisma RA. ' +
       'Tente novamente em alguns instantes ou procure o suporte responsável.</p>'
     );
   }
@@ -130,12 +131,12 @@ function getCurrentUser() {
 
 /**
  * Trigger onOpen - executada automaticamente ao abrir a planilha.
- * Adiciona um menu customizado "Portobank RA" com opção de abrir o sistema.
+ * Adiciona um menu customizado "Prisma RA" com opção de abrir o sistema.
  */
 function onOpen() {
   try {
     SpreadsheetApp.getUi()
-      .createMenu('Portobank RA')
+      .createMenu('Prisma RA')
       .addItem('🚀 Abrir Sistema', 'abrirSistema')
       .addSeparator()
       .addItem('🔄 Reinicializar Planilhas', 'menuReinicializar')
@@ -147,21 +148,21 @@ function onOpen() {
 }
 
 /**
- * Abre o sistema Portobank RA como diálogo modal dentro da planilha.
+ * Abre o sistema Prisma RA como diálogo modal dentro da planilha.
  * Alternativa ao acesso via URL do Web App.
  */
 function abrirSistema() {
   try {
     // Inicializa planilhas se necessário
     ensureDatabaseReady();
-    
+
     const template = HtmlService.createTemplateFromFile('Index');
     const html = template.evaluate()
-      .setTitle('Portobank RA')
+      .setTitle('Prisma RA')
       .setWidth(1400)
       .setHeight(900);
-    
-    SpreadsheetApp.getUi().showModalDialog(html, 'Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)');
+
+    SpreadsheetApp.getUi().showModalDialog(html, 'Pelitero Labs Prisma RA — Sistema de Gestão de Atendimentos');
   } catch (e) {
     Logger.log('Erro ao abrir sistema: ' + e.message);
     SpreadsheetApp.getUi().alert('Erro ao abrir o sistema: ' + e.message);
@@ -220,7 +221,7 @@ function menuLimparCache() {
  */
 function setup() {
   try {
-    Logger.log('=== SETUP INICIAL DO PORTOBANK RA ===');
+    Logger.log('=== SETUP INICIAL DO PRISMA RA ===');
     initializeSheets();
     Logger.log('Setup concluído com sucesso!');
     Logger.log('Para acessar como Web App, publique o projeto:');
@@ -241,8 +242,8 @@ function configurarPlanilha(spreadsheetId) {
   if (!id) throw new Error('Informe o ID da planilha.');
   const spreadsheet = SpreadsheetApp.openById(id);
   const properties = PropertiesService.getScriptProperties();
-  properties.setProperty('PORTO_RA_SPREADSHEET_ID', spreadsheet.getId());
-  properties.deleteProperty('PORTO_RA_SCHEMA_VERSION');
+  properties.setProperty(PROPERTY_KEYS.SPREADSHEET_ID, spreadsheet.getId());
+  properties.deleteProperty(PROPERTY_KEYS.SCHEMA_VERSION);
   initializeSheets();
   return 'Planilha configurada: ' + spreadsheet.getName();
 }
@@ -253,7 +254,7 @@ function configurarPlanilha(spreadsheetId) {
  */
 function testSystem() {
   try {
-    Logger.log('=== TESTE DO SISTEMA PORTOBANK RA ===');
+    Logger.log('=== TESTE DO SISTEMA PRISMA RA ===');
     
     // Testa acesso à planilha
     const ss = getSpreadsheet();

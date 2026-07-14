@@ -1,13 +1,15 @@
 /**
  * ============================================================================
- * Portobank RA - Sistema de Gestão de Atendimentos (Reclame Aqui)
+ * Pelitero Labs Prisma RA — Sistema de Gestão de Atendimentos
  * ============================================================================
  * Arquivo: Config.gs
  * Descrição: Constantes de configuração, definições de colunas das planilhas
- *            e listas fixas do fluxo (status, situações de pendência, canais).
+ *            e listas fixas do fluxo (status, aguardando retorno, canais).
  *
  * Este arquivo centraliza toda a configuração do sistema para facilitar
  * a manutenção e personalização.
+ *
+ * Desenvolvido por Pelitero Labs.
  *
  * ------------------------------------------------------------------------
  * GUIA PARA QUEM ESTÁ COMEÇANDO
@@ -53,13 +55,35 @@ const CONFIG = {
 };
 
 // ============================================================================
+// CHAVES DE SCRIPT PROPERTIES
+// Centralizadas para evitar strings repetidas pelo código. As chaves da
+// marca anterior (PORTO_RA_*) são migradas automaticamente na primeira
+// execução (migrateLegacyProperties_ em Database.gs), preservando o vínculo
+// com a planilha e o controle de versão de instalações existentes.
+// ============================================================================
+const PROPERTY_KEYS = {
+  SPREADSHEET_ID: 'PRISMA_RA_SPREADSHEET_ID',
+  SCHEMA_VERSION: 'PRISMA_RA_SCHEMA_VERSION',
+  CATALOG_VERSION: 'PRISMA_RA_CATALOG_VERSION',
+  CANAL_MIGRATION: 'PRISMA_RA_CANAL_MIGRATION'
+};
+
+/** Mapeamento chave legada → chave atual, usado apenas pela migração. */
+const LEGACY_PROPERTY_KEYS = {
+  PORTO_RA_SPREADSHEET_ID: PROPERTY_KEYS.SPREADSHEET_ID,
+  PORTO_RA_SCHEMA_VERSION: PROPERTY_KEYS.SCHEMA_VERSION,
+  PORTO_RA_CATALOG_VERSION: PROPERTY_KEYS.CATALOG_VERSION,
+  PORTO_RA_CANAL_MIGRATION: PROPERTY_KEYS.CANAL_MIGRATION
+};
+
+// ============================================================================
 // DEFINIÇÕES DE COLUNAS POR PLANILHA
 // Cada array define a ordem exata das colunas (headers) na planilha.
 // ============================================================================
 const COLUMNS = {
   ATENDIMENTOS: [
     'Id',
-    'NumeroRA',          // Protocolo Odin
+    'NumeroRA',          // Protocolo do atendimento
     'DataAbertura',
     'Canal',
     'Cliente',
@@ -189,14 +213,15 @@ const CANAL_SHEETS = [
 // ============================================================================
 
 /**
- * Produtos atendidos pela célula: apenas Cartão de Crédito e
- * Conta Digital PortoBank. Estas listas também são usadas pela migração
+ * Produtos atendidos pela célula de exemplo: Cartão de Crédito e
+ * Conta Digital. Estas listas também são usadas pela migração
  * (migrateLegacyData_ em Database.gs) para substituir os produtos e
- * categorias antigos de instalações existentes.
+ * categorias antigos de instalações existentes. O catálogo é administrável
+ * pela tela de Configurações após a primeira criação.
  */
 const DEFAULT_PRODUTOS = [
-  { Id: 'PD001', Nome: 'Cartão de Crédito',       Descricao: 'Cartão de crédito Portobank',  Ativo: true, Ordem: 1 },
-  { Id: 'PD002', Nome: 'Conta Digital PortoBank', Descricao: 'Conta digital do PortoBank',   Ativo: true, Ordem: 2 }
+  { Id: 'PD001', Nome: 'Cartão de Crédito', Descricao: 'Atendimentos do produto cartão de crédito', Ativo: true, Ordem: 1 },
+  { Id: 'PD002', Nome: 'Conta Digital',     Descricao: 'Atendimentos do produto conta digital',     Ativo: true, Ordem: 2 }
 ];
 
 /**
@@ -231,8 +256,8 @@ const DEFAULT_CATEGORIAS = [
   { Id: 'CT004', ProdutoId: 'PD001', Nome: 'Limite de crédito',        Descricao: 'Revisão, aumento ou redução de limite',            Ativo: true, Ordem: 4 },
   { Id: 'CT005', ProdutoId: 'PD001', Nome: 'Bloqueio/Desbloqueio',     Descricao: 'Problemas com bloqueio ou desbloqueio do cartão',  Ativo: true, Ordem: 5 },
   { Id: 'CT006', ProdutoId: 'PD001', Nome: 'Fatura',                   Descricao: 'Divergências, fechamento e parcelamento de fatura', Ativo: true, Ordem: 6 },
-  // Conta Digital PortoBank
-  { Id: 'CT007', ProdutoId: 'PD002', Nome: 'Conta Digital PortoBank',  Descricao: 'Assuntos gerais da conta digital PortoBank',       Ativo: true, Ordem: 7 },
+  // Conta Digital
+  { Id: 'CT007', ProdutoId: 'PD002', Nome: 'Assuntos gerais da conta', Descricao: 'Assuntos gerais da conta digital',                 Ativo: true, Ordem: 7 },
   { Id: 'CT008', ProdutoId: 'PD002', Nome: 'Abertura/Encerramento',    Descricao: 'Problemas na abertura ou encerramento da conta',   Ativo: true, Ordem: 8 },
   { Id: 'CT009', ProdutoId: 'PD002', Nome: 'Transferência/Pix',        Descricao: 'Problemas com transferências, TED ou Pix',         Ativo: true, Ordem: 9 },
   { Id: 'CT010', ProdutoId: 'PD002', Nome: 'Cobrança indevida',        Descricao: 'Tarifas ou cobranças indevidas na conta digital',  Ativo: true, Ordem: 10 },

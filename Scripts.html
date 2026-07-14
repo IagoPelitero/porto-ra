@@ -1,6 +1,7 @@
 <script>
 /* ============================================================================
-   Portobank RA — Scripts.html
+   Pelitero Labs Prisma RA — Scripts.html
+   Desenvolvido por Pelitero Labs.
    ============================================================================
    GUIA PARA QUEM ESTÁ COMEÇANDO
    ----------------------------------------------------------------------------
@@ -187,14 +188,14 @@ var App = {
     }
     document.body.classList.toggle('sidebar-collapsed');
     try {
-      localStorage.setItem('portobank-ra-sidebar', document.body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'open');
+      localStorage.setItem('prisma-ra-sidebar', document.body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'open');
     } catch (e) {}
   },
 
   // Restaura a preferência de menu encolhido/aberto do último acesso.
   restoreSidebar: function() {
     try {
-      if (localStorage.getItem('portobank-ra-sidebar') === 'collapsed') {
+      if (localStorage.getItem('prisma-ra-sidebar') === 'collapsed') {
         document.body.classList.add('sidebar-collapsed');
       }
     } catch (e) {}

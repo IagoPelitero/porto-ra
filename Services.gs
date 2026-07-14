@@ -1,10 +1,13 @@
 /**
  * ============================================================================
- * Portobank RA - Camada de serviços
+ * Pelitero Labs Prisma RA — Camada de serviços
  * ============================================================================
- * Regras de negócio, validação, timeline, dashboard, relatórios e
+ * Arquivo: Services.gs
+ * Descrição: Regras de negócio, validação, timeline, dashboard, relatórios e
  * administração das configurações. Todas as funções públicas deste arquivo
  * podem ser chamadas pelo frontend com google.script.run.
+ *
+ * Desenvolvido por Pelitero Labs.
  *
  * ------------------------------------------------------------------------
  * GUIA PARA QUEM ESTÁ COMEÇANDO
@@ -96,6 +99,11 @@ function getFormConfig_() {
     .sort(function(a, b) { return a.ordem - b.ordem; });
 }
 
+/**
+ * Retorna os registros ativos de uma aba, ordenados por Ordem e Nome.
+ * @param {string} sheetName - Nome da aba.
+ * @returns {Object[]} Registros ativos ordenados.
+ */
 function activeSorted_(sheetName) {
   return getAll(sheetName)
     .filter(function(item) {
@@ -111,6 +119,14 @@ function activeSorted_(sheetName) {
 // ATENDIMENTOS - CONSULTAS
 // ============================================================================
 
+/**
+ * Lista os atendimentos visíveis para o usuário logado, com filtros,
+ * ordenação e paginação. Analista recebe apenas os próprios registros.
+ * @param {Object} filtros - Filtros opcionais (status, canal, período...).
+ * @param {number} pagina - Página atual (1-indexed).
+ * @param {Object} ordenacao - { campo, direcao } para ordenação.
+ * @returns {Object} { dados, total, totalPaginas, pagina }.
+ */
 function getAtendimentos(filtros, pagina, ordenacao) {
   ensureDatabaseReady();
   const actor = getActor_();
@@ -126,6 +142,12 @@ function getAtendimentos(filtros, pagina, ordenacao) {
   };
 }
 
+/**
+ * Carrega um atendimento e sua timeline, respeitando as permissões
+ * do usuário logado.
+ * @param {string} id - Id do atendimento.
+ * @returns {Object|null} { atendimento, timeline } ou null.
+ */
 function getAtendimento(id) {
   ensureDatabaseReady();
   const found = findAtendimento_(sanitizeInput(id));
@@ -139,8 +161,12 @@ function getAtendimento(id) {
 }
 
 /**
- * Verificação rápida de duplicidade do Protocolo Odin (usada pelo formulário
- * enquanto o usuário digita, sem carregar a lista inteira).
+ * Verificação rápida de duplicidade do protocolo (usada pelo formulário
+ * enquanto o usuário digita, sem carregar a lista inteira). A busca cobre
+ * as três abas por canal.
+ * @param {string} protocolo - Protocolo digitado.
+ * @param {string} ignorarId - Id do próprio atendimento (em edições).
+ * @returns {Object} { duplicado: boolean }.
  */
 function verificarProtocoloDuplicado(protocolo, ignorarId) {
   ensureDatabaseReady();
@@ -192,6 +218,13 @@ function findAtendimento_(id) {
   return null;
 }
 
+/**
+ * Aplica os filtros de consulta (período, campos exatos e campos de
+ * busca parcial) sobre uma lista de atendimentos.
+ * @param {Object[]} records - Atendimentos a filtrar.
+ * @param {Object} filtros - Critérios enviados pelo frontend.
+ * @returns {Object[]} Atendimentos que atendem a todos os critérios.
+ */
 function applyAtendimentoFilters_(records, filtros) {
   const filters = filtros || {};
   const start = parseInputDate_(filters.dataInicio || filters.periodoInicio, false);
@@ -230,6 +263,12 @@ function applyAtendimentoFilters_(records, filtros) {
   });
 }
 
+/**
+ * Ordena registros já convertidos para o formato do frontend.
+ * Campos com "data" no nome são comparados como datas.
+ * @param {Object[]} records - Registros no formato do cliente.
+ * @param {Object} order - { campo, direcao } ("asc" ou "desc").
+ */
 function sortClientRecords_(records, order) {
   const field = sanitizeInput(order.campo || 'dataAbertura');
   const direction = String(order.direcao || 'desc').toLowerCase() === 'asc' ? 1 : -1;
@@ -247,6 +286,13 @@ function sortClientRecords_(records, order) {
 // ATENDIMENTOS - ESCRITA E REGRAS
 // ============================================================================
 
+/**
+ * Cria um novo atendimento na aba do canal selecionado.
+ * Analista é definido automaticamente como responsável; Supervisor/ADM
+ * podem delegar a outro analista.
+ * @param {Object} dados - Dados preenchidos pelo usuário no formulário.
+ * @returns {Object} { success, id } do atendimento criado.
+ */
 function salvarAtendimento(dados) {
   ensureDatabaseReady();
   const input = validateAtendimentoInput_(dados || {});
@@ -298,6 +344,15 @@ function salvarAtendimento(dados) {
   return { success: true, id: record.Id };
 }
 
+/**
+ * Atualiza um atendimento existente, com justificativa obrigatória,
+ * registro de histórico campo a campo e eventos de timeline. Se o canal
+ * mudar, o registro é movido para a aba do novo canal.
+ * @param {string} id - Id do atendimento.
+ * @param {Object} dados - Novos valores do formulário.
+ * @param {string} justificativa - Motivo da alteração (auditoria).
+ * @returns {Object} { success, id }.
+ */
 function atualizarAtendimento(id, dados, justificativa) {
   ensureDatabaseReady();
   const safeId = sanitizeInput(id);
@@ -416,6 +471,12 @@ function alterarStatusAtendimento(id, status, situacao) {
   return { success: true, id: safeId };
 }
 
+/**
+ * Exclui logicamente um atendimento (campo Excluido), preservando
+ * timeline e histórico para auditoria.
+ * @param {string} id - Id do atendimento.
+ * @returns {Object} { success } ou { success: false, message }.
+ */
 function excluirAtendimento(id) {
   ensureDatabaseReady();
   const safeId = sanitizeInput(id);
@@ -454,6 +515,12 @@ function excluirAtendimento(id) {
   return { success: true };
 }
 
+/**
+ * Adiciona uma observação à timeline de um atendimento.
+ * @param {string} atendimentoId - Id do atendimento.
+ * @param {string} texto - Texto da observação.
+ * @returns {Object} { success }.
+ */
 function adicionarObservacao(atendimentoId, texto) {
   ensureDatabaseReady();
   const id = sanitizeInput(atendimentoId);
@@ -474,6 +541,15 @@ function adicionarObservacao(atendimentoId, texto) {
   return { success: true };
 }
 
+/**
+ * Sanitiza e valida os dados do formulário de atendimento.
+ * A obrigatoriedade dos campos vem da ConfigCampos (formulário dinâmico);
+ * Canal e Status são regras fixas do fluxo. Campos personalizados são
+ * serializados em JSON para a coluna CamposExtras.
+ * @param {Object} dados - Dados brutos enviados pelo frontend.
+ * @returns {Object} Dados sanitizados e validados.
+ * @throws {Error} Quando algum campo obrigatório ou regra é violada.
+ */
 function validateAtendimentoInput_(dados) {
   const formConfig = getFormConfig_();
   const input = {
@@ -563,6 +639,13 @@ function resolveResolution_(oldRecord, newStatus, opening, now) {
   return { date: oldRecord.DataResolucao, hours: oldRecord.TempoResolucaoHoras };
 }
 
+/**
+ * Monta o rótulo exibido do status, incluindo "Aguardando Retorno de"
+ * quando o status é Pendente. Ex.: "Pendente (Área)".
+ * @param {string} status - Nome do status.
+ * @param {string} situacao - Aguardando retorno de (Área/Cliente).
+ * @returns {string} Rótulo formatado.
+ */
 function statusLabel_(status, situacao) {
   return situacao && isWaitingStatus_(status)
     ? status + ' (' + situacao + ')'
@@ -656,14 +739,28 @@ function assertUniqueNumeroRAAllSheets_(ss, numeroRA, ignoredId) {
 // STATUS (regras fixas do fluxo)
 // ============================================================================
 
+/**
+ * Indica se o status é "Pendente" (exige "Aguardando Retorno de").
+ * @param {string} statusName - Nome do status.
+ * @returns {boolean}
+ */
 function isWaitingStatus_(statusName) {
   return normalizeText_(statusName) === 'pendente';
 }
 
+/**
+ * Indica se o status é final ("Concluído").
+ * @param {string} statusName - Nome do status.
+ * @returns {boolean}
+ */
 function isFinalStatus_(statusName) {
   return normalizeText_(statusName) === 'concluido';
 }
 
+/**
+ * Mapa Nome do status → cor (STATUS_LIST em Config.gs).
+ * @returns {Object} Ex.: { "Pendente": "#FF9800", ... }.
+ */
 function getStatusColorMap_() {
   const map = {};
   STATUS_LIST.forEach(function(item) { map[item.Nome] = item.Cor; });
@@ -674,6 +771,12 @@ function getStatusColorMap_() {
 // TIMELINE E HISTÓRICO
 // ============================================================================
 
+/**
+ * Retorna a timeline de um atendimento, da mais recente para a mais
+ * antiga, no formato consumido pelo frontend.
+ * @param {string} atendimentoId - Id do atendimento.
+ * @returns {Object[]} Eventos da timeline.
+ */
 function getTimeline(atendimentoId) {
   ensureDatabaseReady();
   const id = sanitizeInput(atendimentoId);
@@ -696,6 +799,18 @@ function getTimeline(atendimentoId) {
     });
 }
 
+/**
+ * Insere um evento na aba Timeline.
+ * @param {string} atendimentoId - Id do atendimento.
+ * @param {string} tipo - Tipo do evento (Criação, Observação...).
+ * @param {string} descricao - Descrição do evento.
+ * @param {string} de - Valor anterior (quando aplicável).
+ * @param {string} para - Valor novo (quando aplicável).
+ * @param {string} usuario - Nome de quem executou a ação.
+ * @param {string} detalhes - Informações complementares.
+ * @param {Date} [eventDate] - Data do evento (padrão: agora).
+ * @returns {string} Id do evento criado.
+ */
 function insertTimeline_(atendimentoId, tipo, descricao, de, para, usuario, detalhes, eventDate) {
   return insert(CONFIG.SHEET_NAMES.TIMELINE, {
     Id: generateId('TL'),
@@ -710,6 +825,16 @@ function insertTimeline_(atendimentoId, tipo, descricao, de, para, usuario, deta
   });
 }
 
+/**
+ * Compara o registro antigo com as atualizações e monta as linhas de
+ * histórico (uma por campo alterado), ignorando campos de controle.
+ * @param {string} atendimentoId - Id do atendimento.
+ * @param {Object} oldRecord - Registro antes da alteração.
+ * @param {Object} updates - Novos valores.
+ * @param {string} userName - Autor da alteração.
+ * @param {string} justification - Justificativa informada.
+ * @returns {Object[]} Linhas prontas para a aba Histórico.
+ */
 function buildChangeHistory_(atendimentoId, oldRecord, updates, userName, justification) {
   const ignored = ['AtualizadoPor', 'DataAtualizacao', 'DataResolucao', 'TempoResolucaoHoras'];
   const entries = [];
@@ -803,6 +928,12 @@ function getDashboardData() {
 // RELATÓRIOS
 // ============================================================================
 
+/**
+ * Gera os dados do relatório com os filtros informados, respeitando as
+ * permissões do usuário (Analista vê apenas os próprios atendimentos).
+ * @param {Object} filtros - Filtros da tela de Relatórios.
+ * @returns {Object[]} Atendimentos no formato do frontend.
+ */
 function getRelatorio(filtros) {
   ensureDatabaseReady();
   const actor = getActor_();
@@ -815,6 +946,11 @@ function getRelatorio(filtros) {
 // CONFIGURAÇÕES ADMINISTRÁVEIS (Produtos, Categorias, Usuários)
 // ============================================================================
 
+/**
+ * Retorna as entidades administráveis visíveis para o usuário logado.
+ * Usuários e Campos do formulário aparecem apenas para o ADM.
+ * @returns {Object} { entities, user }.
+ */
 function getConfiguracoes() {
   ensureDatabaseReady();
   requireSupervisor_();
@@ -829,6 +965,15 @@ function getConfiguracoes() {
   return { entities: result, user: getActor_() };
 }
 
+/**
+ * Cria ou atualiza um registro de configuração (produto, categoria,
+ * usuário ou campo do formulário), com validações por entidade e
+ * auditoria no Histórico. Entidades adminOnly exigem perfil ADM.
+ * @param {string} entidade - Chave da entidade (ex.: "produtos").
+ * @param {Object} dados - Valores do formulário de configuração.
+ * @param {string} id - Id do registro (vazio para criação).
+ * @returns {Object} { success, id }.
+ */
 function salvarConfiguracao(entidade, dados, id) {
   ensureDatabaseReady();
   requireSupervisor_();
@@ -916,6 +1061,13 @@ function salvarConfiguracao(entidade, dados, id) {
   return { success: true, id: recordId };
 }
 
+/**
+ * Desativa (produtos/categorias/usuários) ou remove (campos
+ * personalizados do formulário) um registro de configuração.
+ * @param {string} entidade - Chave da entidade.
+ * @param {string} id - Id do registro.
+ * @returns {Object} { success }.
+ */
 function excluirConfiguracao(entidade, id) {
   ensureDatabaseReady();
   requireSupervisor_();
@@ -950,6 +1102,11 @@ function excluirConfiguracao(entidade, id) {
   return { success: true };
 }
 
+/**
+ * Metadados das entidades administráveis pela tela de Configurações:
+ * aba, colunas, prefixo de Id e restrição de acesso (adminOnly).
+ * @returns {Object} Mapa chave → metadados da entidade.
+ */
 function getConfigurationEntities_() {
   return {
     produtos: {
@@ -983,6 +1140,14 @@ function slugifyFieldKey_(rotulo) {
   }).join('');
 }
 
+/**
+ * Registra no Histórico toda criação/alteração/desativação feita pela
+ * tela de Configurações.
+ * @param {string} action - Ação executada.
+ * @param {string} label - Nome amigável da entidade.
+ * @param {string} id - Id do registro afetado.
+ * @param {Object} value - Valores gravados.
+ */
 function auditConfiguration_(action, label, id, value) {
   insert(CONFIG.SHEET_NAMES.HISTORICO, {
     Id: generateId('HIS'),
@@ -997,6 +1162,12 @@ function auditConfiguration_(action, label, id, value) {
   });
 }
 
+/**
+ * Garante que exista outro ADM ativo antes de remover/demover um ADM,
+ * evitando que o sistema fique sem administrador.
+ * @param {string} ignoredId - Id do usuário sendo alterado.
+ * @throws {Error} Quando não há outro ADM ativo.
+ */
 function assertAnotherAdmin_(ignoredId) {
   const activeAdmins = getAll(CONFIG.SHEET_NAMES.USUARIOS).filter(function(user) {
     return String(user.Id) !== String(ignoredId) &&
@@ -1012,6 +1183,12 @@ function assertAnotherAdmin_(ignoredId) {
 // CONVERSÃO E SEGURANÇA
 // ============================================================================
 
+/**
+ * Converte uma lista de registros da planilha para o formato do
+ * frontend, incluindo a cor do status.
+ * @param {Object[]} records - Registros crus da planilha.
+ * @returns {Object[]} Registros no formato do cliente.
+ */
 function decorateAtendimentos_(records) {
   const colorMap = getStatusColorMap_();
   return records.map(function(record) {
@@ -1019,11 +1196,17 @@ function decorateAtendimentos_(records) {
   });
 }
 
+/**
+ * Converte um registro da planilha para o objeto consumido pelo
+ * frontend (datas em ISO, extras parseados, cor do status).
+ * @param {Object} record - Registro cru da planilha.
+ * @param {Object} colorMap - Mapa status → cor.
+ * @returns {Object} Atendimento no formato do cliente.
+ */
 function toClientAtendimento_(record, colorMap) {
   return {
     id: String(record.Id || ''),
     numeroRA: String(record.NumeroRA || ''),
-    protocoloOdin: String(record.NumeroRA || ''),
     dataAbertura: toIso_(record.DataAbertura),
     dataConclusao: toIso_(record.DataResolucao),
     canal: String(record.Canal || ''),
@@ -1060,6 +1243,13 @@ function parseCamposExtras_(value) {
   }
 }
 
+/**
+ * Identifica o usuário logado: cruza o e-mail da sessão Google com a
+ * aba Usuários para obter nome, perfil e equipe. O resultado é cacheado
+ * por execução (SERVICE_CONTEXT_). Sem correspondência, assume o perfil
+ * Analista (menor privilégio).
+ * @returns {Object} { id, email, nome, perfil, equipe }.
+ */
 function getActor_() {
   if (SERVICE_CONTEXT_.actor) return SERVICE_CONTEXT_.actor;
   let email = '';
@@ -1085,6 +1275,10 @@ function getActor_() {
   return SERVICE_CONTEXT_.actor;
 }
 
+/**
+ * Interrompe a execução se o usuário não for Supervisor nem ADM.
+ * @throws {Error} Quando o perfil não tem permissão.
+ */
 function requireSupervisor_() {
   const actor = getActor_();
   if (!isSupervisorProfile_(actor.perfil)) {
@@ -1092,6 +1286,10 @@ function requireSupervisor_() {
   }
 }
 
+/**
+ * Interrompe a execução se o usuário não for ADM.
+ * @throws {Error} Quando o perfil não tem permissão.
+ */
 function requireAdmin_() {
   const actor = getActor_();
   if (!isAdminProfile_(actor.perfil)) {
@@ -1144,6 +1342,12 @@ function restrictToOwnerIfNeeded_(records, actor) {
 // AUXILIARES DE DATA E VALORES
 // ============================================================================
 
+/**
+ * Converte um valor vindo do formulário (AAAA-MM-DD ou Date) em Date.
+ * @param {*} value - Valor a converter.
+ * @param {boolean} endOfDay - true para 23:59:59.999 (fim de período).
+ * @returns {Date|null} Data convertida ou null se inválida.
+ */
 function parseInputDate_(value, endOfDay) {
   if (!value) return null;
   if (value instanceof Date) return new Date(value.getTime());
@@ -1164,27 +1368,53 @@ function parseInputDate_(value, endOfDay) {
   return isNaN(date.getTime()) ? null : date;
 }
 
+/**
+ * Converte um valor qualquer em Date, retornando null se inválido.
+ * @param {*} value - Valor a converter.
+ * @returns {Date|null}
+ */
 function asDate_(value) {
   if (!value) return null;
   const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   return isNaN(date.getTime()) ? null : date;
 }
 
+/**
+ * Converte um valor de data para string ISO (ou "" se inválido).
+ * @param {*} value - Valor a converter.
+ * @returns {string}
+ */
 function toIso_(value) {
   const date = asDate_(value);
   return date ? date.toISOString() : '';
 }
 
+/**
+ * Arredonda horas para duas casas decimais.
+ * @param {number} hours - Valor em horas.
+ * @returns {number}
+ */
 function roundHours_(hours) {
   return Math.round(Number(hours || 0) * 100) / 100;
 }
 
+/**
+ * Normaliza um valor para comparação no histórico de alterações
+ * (datas viram ISO; null/undefined viram "").
+ * @param {*} value - Valor a normalizar.
+ * @returns {string}
+ */
 function comparableValue_(value) {
   if (value instanceof Date) return value.toISOString();
   if (value === null || value === undefined) return '';
   return String(value);
 }
 
+/**
+ * Serializa um registro para envio ao frontend (datas em ISO).
+ * @param {Object} record - Registro da planilha.
+ * @returns {Object}
+ */
 function serializeRecord_(record) {
   const result = {};
   Object.keys(record || {}).forEach(function(key) {
@@ -1193,6 +1423,12 @@ function serializeRecord_(record) {
   return result;
 }
 
+/**
+ * Normaliza texto para comparações: minúsculas, sem acentos e sem
+ * espaços nas pontas.
+ * @param {*} value - Valor a normalizar.
+ * @returns {string}
+ */
 function normalizeText_(value) {
   let text = String(value === null || value === undefined ? '' : value).trim().toLowerCase();
   try {
@@ -1203,17 +1439,35 @@ function normalizeText_(value) {
   return text;
 }
 
+/**
+ * Interpreta valores "verdadeiros" vindos da planilha ou de formulários
+ * (true, 1, "sim", "ativo", "true").
+ * @param {*} value - Valor a interpretar.
+ * @returns {boolean}
+ */
 function isTrue_(value) {
   return value === true || value === 1 ||
     ['true', 'sim', '1', 'ativo'].indexOf(normalizeText_(value)) !== -1;
 }
 
+/**
+ * Indexa uma lista de objetos por um campo (ex.: Id → objeto).
+ * @param {Object[]} items - Lista de objetos.
+ * @param {string} field - Campo usado como chave.
+ * @returns {Object}
+ */
 function indexBy_(items, field) {
   const index = {};
   items.forEach(function(item) { index[String(item[field] || '')] = item; });
   return index;
 }
 
+/**
+ * Extrai os valores não vazios de um campo em uma lista de objetos.
+ * @param {Object[]} items - Lista de objetos.
+ * @param {string} field - Campo a extrair.
+ * @returns {string[]}
+ */
 function pluck_(items, field) {
   return items.map(function(item) { return String(item[field] || ''); }).filter(function(value) { return value; });
 }
