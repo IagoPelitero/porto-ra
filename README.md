@@ -275,7 +275,13 @@ Tela exclusiva de Supervisor/ADM com análise visual da operação (Chart.js):
 
 - **Filtros**: Data Inicial/Final, Produto, Categoria, Canal, Responsável, Status e
   "Aguardando Retorno de" — qualquer mudança atualiza automaticamente todos os
-  gráficos e cards;
+  gráficos e cards. O painel é **recolhível** (mesmo padrão do Dashboard, com
+  contador e chips removíveis) e o estado aberto/fechado é lembrado durante a
+  sessão; recolhido, libera espaço para os gráficos;
+- **Números sempre visíveis**: os gráficos de Produto, Categoria e Responsável
+  exibem **quantidade e percentual** desenhados nas próprias barras; Canal,
+  Status e Aguardando Retorno trazem os valores na legenda
+  ("Nome — 125 (63,5%)") — sem depender do mouse;
 - **Cards de resumo**: Total, Pendentes, Em análise, Concluídos, Aguardando Área e
   Aguardando Cliente;
 - **Gráficos**: atendimentos por dia (linha), por produto (barras), por categoria
@@ -391,6 +397,11 @@ pelitero-labs-prisma-RA/
   atual; as exportações continuam usando o conjunto completo);
 - **Tabelas com rolagem interna**: cabeçalho fixo (sticky) e barras de rolagem
   sempre visíveis dentro do container da tabela;
+- **Legibilidade da tabela**: células com mais espaçamento (14×18px) e
+  line-height 1.5; largura das colunas automática pelo conteúdo; quebra de
+  linha apenas quando necessária e sempre entre palavras (nunca no meio delas);
+- **Grade de gráficos responsiva**: cards com mínimo de 400px e altura de
+  300px — 2 colunas em notebook, 3 em Full HD e teto de 4 em ultrawide;
 - **Indicadores**: rótulos longos dos gráficos de Produto, Categoria e Responsável
   truncados com "…" nos eixos, mantendo o nome completo no tooltip.
 

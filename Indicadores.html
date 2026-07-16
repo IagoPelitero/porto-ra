@@ -49,6 +49,23 @@ Pages.indicadores = {
     situacao: 'ind-situacao'
   },
 
+  // Rótulos exibidos nos "chips" de filtros ativos (mesmo padrão do Dashboard).
+  _filtroLabels: {
+    dataInicio: 'Data Inicial',
+    dataFim: 'Data Final',
+    produto: 'Produto',
+    categoria: 'Categoria',
+    canal: 'Canal',
+    analista: 'Responsável',
+    status: 'Status',
+    situacao: 'Aguardando Retorno'
+  },
+
+  // Chave de sessão que lembra se o painel de filtros estava aberto.
+  // sessionStorage: vale durante a sessão do navegador (requisito),
+  // sem persistir entre dias como o localStorage.
+  _estadoPainelKey: 'prisma-ra-ind-filtros-aberto',
+
   /**
    * Desenha a tela (filtros, cards e grade de gráficos) e carrega os
    * dados iniciais. Analistas são redirecionados ao Dashboard.
@@ -73,8 +90,25 @@ Pages.indicadores = {
     html += '  </div>';
     html += '</div>';
 
-    // ── Filtros: qualquer alteração atualiza todos os gráficos ──
+    // ── Painel de filtros recolhível (mesmo padrão do Dashboard) ──
+    // Recolhido, libera espaço vertical para os gráficos; o cabeçalho
+    // mostra o contador de filtros ativos e os chips (removíveis) ficam
+    // visíveis mesmo com o painel fechado. O último estado aberto/
+    // fechado é lembrado durante a sessão (sessionStorage). A abertura/
+    // fechamento é animada via CSS (.filtros-wrap) — sem recarregar nada.
     html += '<div class="card" style="margin-bottom:24px;">';
+    html += '  <div class="filtros-header" id="ind-filtros-toggle" title="Mostrar/ocultar filtros">';
+    html += '    <div style="display:flex;align-items:center;gap:10px;">';
+    html += '      <h2 style="margin:0;font-size:1.05rem;font-weight:600;">🔍 Filtros</h2>';
+    html += '      <span id="ind-filtros-badge" class="filtros-badge" style="display:none;">0</span>';
+    html += '    </div>';
+    html += '    <div style="display:flex;align-items:center;gap:10px;">';
+    html += '      <button class="btn btn-secondary" id="ind-limpar" style="display:none;">🗑️ Limpar Filtros</button>';
+    html += '      <span class="material-icons filtros-caret">expand_more</span>';
+    html += '    </div>';
+    html += '  </div>';
+    html += '  <div id="ind-filtros-chips" class="filter-chips"></div>';
+    html += '  <div id="ind-filtros-wrap" class="filtros-wrap">';
     html += '  <div class="form-row">';
     html += '    <div class="form-group"><label class="form-label">Data Inicial</label><input type="date" id="ind-data-inicio" class="form-control"></div>';
     html += '    <div class="form-group"><label class="form-label">Data Final</label><input type="date" id="ind-data-fim" class="form-control"></div>';
@@ -87,9 +121,7 @@ Pages.indicadores = {
     html += '    <div class="form-group"><label class="form-label">Status</label><select id="ind-status" class="form-control"></select></div>';
     html += '    <div class="form-group"><label class="form-label">Aguardando Retorno de</label><select id="ind-situacao" class="form-control"></select></div>';
     html += '  </div>';
-    html += '  <div class="form-actions" style="margin-top:4px;">';
-    html += '    <button class="btn btn-secondary" id="ind-limpar">🗑️ Limpar Filtros</button>';
-    html += '  </div>';
+    html += '  </div>'; // fecha ind-filtros-wrap (área recolhível)
     html += '</div>';
 
     // ── Cards de resumo ──
@@ -130,11 +162,13 @@ Pages.indicadores = {
   },
 
   // Liga os filtros: qualquer mudança atualiza automaticamente todos os
-  // gráficos (com debounce leve para os campos de data).
+  // gráficos (com debounce leve) e os chips de filtros ativos.
   _bindFiltros: function() {
     var self = this;
     var timer = null;
     var agendar = function() {
+      // Chips e contador atualizam na hora; os gráficos, com debounce.
+      self._renderChips();
       clearTimeout(timer);
       timer = setTimeout(function() { self.atualizar(); }, 250);
     };
@@ -142,6 +176,29 @@ Pages.indicadores = {
       var el = document.getElementById(self._filtroIds[key]);
       if (el) el.addEventListener('change', agendar);
     });
+
+    // ── Abre/recolhe o painel pelo cabeçalho ──
+    // O estado (aberto/fechado) é lembrado durante a sessão; a animação
+    // é feita pelo CSS (.filtros-wrap) — nenhuma recarga de página.
+    var header = document.getElementById('ind-filtros-toggle');
+    var wrap = document.getElementById('ind-filtros-wrap');
+    if (header && wrap) {
+      header.addEventListener('click', function(e) {
+        if (e.target.closest('#ind-limpar')) return; // Limpar não alterna
+        var aberto = wrap.classList.toggle('open');
+        header.classList.toggle('open', aberto);
+        try { sessionStorage.setItem(self._estadoPainelKey, aberto ? '1' : '0'); } catch (err) {}
+      });
+      // Restaura o último estado da sessão (padrão: recolhido, para
+      // maximizar a área disponível para os gráficos).
+      var lembrado = '0';
+      try { lembrado = sessionStorage.getItem(self._estadoPainelKey) || '0'; } catch (err) {}
+      if (lembrado === '1') {
+        wrap.classList.add('open');
+        header.classList.add('open');
+      }
+    }
+
     var limpar = document.getElementById('ind-limpar');
     if (limpar) {
       limpar.addEventListener('click', function() {
@@ -149,9 +206,53 @@ Pages.indicadores = {
           var el = document.getElementById(self._filtroIds[key]);
           if (el) el.value = '';
         });
+        self._renderChips();
         self.atualizar();
       });
     }
+  },
+
+  /**
+   * Desenha os "chips" dos filtros ativos (mesmo padrão do Dashboard):
+   * visíveis mesmo com o painel recolhido, removíveis pelo "x", com
+   * contador no cabeçalho e botão Limpar exibido só quando há filtro.
+   */
+  _renderChips: function() {
+    var self = this;
+    var container = document.getElementById('ind-filtros-chips');
+    var badge = document.getElementById('ind-filtros-badge');
+    var limpar = document.getElementById('ind-limpar');
+    if (!container) return;
+
+    var filtros = self.getFiltros();
+    var ativos = Object.keys(self._filtroIds).filter(function(key) { return filtros[key]; });
+
+    container.innerHTML = ativos.map(function(key) {
+      var valor = filtros[key];
+      if (key === 'dataInicio' || key === 'dataFim') valor = App.formatDateBR(valor);
+      return '<span class="filter-chip">' + self._filtroLabels[key] + ': ' +
+        '<strong>' + App.escapeHtml(valor) + '</strong>' +
+        '<span class="material-icons" title="Remover este filtro" ' +
+        'onclick="Pages.indicadores._removerFiltro(\'' + key + '\')">close</span></span>';
+    }).join('');
+
+    if (badge) {
+      badge.textContent = ativos.length;
+      badge.style.display = ativos.length ? '' : 'none';
+    }
+    if (limpar) limpar.style.display = ativos.length ? '' : 'none';
+  },
+
+  /**
+   * Remove UM filtro específico (clique no "x" do chip) e atualiza os
+   * gráficos imediatamente.
+   * @param {string} key - Chave do filtro em _filtroIds.
+   */
+  _removerFiltro: function(key) {
+    var el = document.getElementById(this._filtroIds[key]);
+    if (el) el.value = '';
+    this._renderChips();
+    this.atualizar();
   },
 
   // Lê os valores atuais dos filtros no formato aceito pelo servidor.
@@ -328,6 +429,109 @@ Pages.indicadores = {
   },
 
   /**
+   * Formata um percentual no padrão brasileiro com 1 casa decimal.
+   * Cálculo: (valor / total) * 100. Com total 0, retorna "0,0%".
+   * @param {number} valor - Quantidade do item.
+   * @param {number} total - Soma de todos os itens do gráfico.
+   * @returns {string} Ex.: "63,5%".
+   */
+  _fmtPct: function(valor, total) {
+    if (!total) return '0,0%';
+    return ((valor / total) * 100).toLocaleString('pt-BR', {
+      minimumFractionDigits: 1, maximumFractionDigits: 1
+    }) + '%';
+  },
+
+  /**
+   * Monta os rótulos de LEGENDA com quantidade e percentual para os
+   * gráficos de pizza/rosca (Canal, Status, Aguardando Retorno):
+   * "Nome — 125 (63,5%)". Assim os números ficam sempre visíveis,
+   * sem depender do mouse sobre o gráfico.
+   * @param {string[]} labels - Nomes originais.
+   * @param {number[]} valores - Quantidades correspondentes.
+   * @returns {string[]} Rótulos prontos para exibição.
+   */
+  _rotulosComValores: function(labels, valores) {
+    var self = this;
+    var total = 0;
+    valores.forEach(function(v) { total += Number(v) || 0; });
+    return labels.map(function(nome, i) {
+      var v = Number(valores[i]) || 0;
+      return nome + ' — ' + App.formatNumber(v) + ' (' + self._fmtPct(v, total) + ')';
+    });
+  },
+
+  /**
+   * Plugin inline do Chart.js que desenha QUANTIDADE e PERCENTUAL
+   * diretamente nas barras (Produto, Categoria e Responsável) — os
+   * números ficam visíveis sem precisar passar o mouse.
+   * Comportamento (percentual sempre entre parênteses):
+   * - barras horizontais: "125 (63,5%)" ao lado do fim da barra (ou
+   *   dentro dela, em branco, se não couber à direita);
+   * - barras verticais: quantidade em cima e "(63,5%)" logo abaixo,
+   *   acima da barra; se a barra for estreita (<34px) mostra só a
+   *   quantidade e, abaixo de 14px, nada (evita sobreposição ilegível).
+   * A cor do texto acompanha o tema atual (Chart.defaults.color).
+   */
+  _pluginValoresBarras: {
+    id: 'valoresNasBarras',
+    afterDatasetsDraw: function(chart) {
+      if (chart.config.type !== 'bar') return;
+      var ds = chart.data.datasets[0];
+      var meta = chart.getDatasetMeta(0);
+      if (!ds || !meta || !meta.data) return;
+
+      // Total do gráfico → base do cálculo percentual de cada barra.
+      var total = 0;
+      ds.data.forEach(function(v) { total += Number(v) || 0; });
+      if (!total) return;
+
+      var self = Pages.indicadores;
+      var ctx = chart.ctx;
+      var horizontal = chart.options.indexAxis === 'y';
+      ctx.save();
+      ctx.font = '600 11px Inter, Arial, sans-serif';
+
+      meta.data.forEach(function(barra, i) {
+        var v = Number(ds.data[i]) || 0;
+        var pctTxt = self._fmtPct(v, total);
+        ctx.fillStyle = Chart.defaults.color;
+
+        if (horizontal) {
+          // Rótulo ao lado do fim da barra: "125 (63,5%)".
+          var texto = App.formatNumber(v) + ' (' + pctTxt + ')';
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = 'left';
+          var x = barra.x + 6;
+          if (x + ctx.measureText(texto).width > chart.chartArea.right) {
+            // Não cabe à direita: desenha DENTRO da barra, em branco.
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#fff';
+            x = barra.x - 6;
+          }
+          ctx.fillText(texto, x, barra.y);
+        } else {
+          var largura = barra.width || 0;
+          if (largura < 14) return; // sem espaço útil: não desenha
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          var topo = barra.y - 4;
+          if (largura >= 34) {
+            // Espaço bom: quantidade em cima, percentual entre
+            // parênteses logo abaixo.
+            ctx.fillText(App.formatNumber(v), barra.x, topo - 12);
+            ctx.fillText('(' + pctTxt + ')', barra.x, topo);
+          } else {
+            // Barra estreita: apenas a quantidade.
+            ctx.fillText(App.formatNumber(v), barra.x, topo);
+          }
+        }
+      });
+      ctx.restore();
+    }
+  },
+
+  /**
    * Destrói o gráfico anterior do canvas (se houver) e cria um novo.
    * Sem isso o Chart.js acumularia instâncias a cada atualização.
    * @param {string} canvasId - Id do canvas.
@@ -378,10 +582,15 @@ Pages.indicadores = {
     });
 
     // ── Por Produto (barras) ──
-    // Rótulos longos são truncados com "…" no eixo (nome completo no tooltip).
+    // Rótulos longos truncados com "…" no eixo (nome completo no tooltip);
+    // quantidade e percentual desenhados ACIMA de cada barra (plugin).
+    // "grace" reserva espaço no topo do eixo para os rótulos não cortarem.
     var porProduto = self._agruparPor('produto');
+    var escalaProduto = self._escalaComTruncamento('x');
+    escalaProduto.y = { grace: '15%' };
     self._criarChart('ind-chart-produto', {
       type: 'bar',
+      plugins: [self._pluginValoresBarras],
       data: {
         labels: porProduto.labels,
         datasets: [{ label: 'Atendimentos', data: porProduto.valores, backgroundColor: self._cores[0] }]
@@ -390,16 +599,19 @@ Pages.indicadores = {
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
-        scales: self._escalaComTruncamento('x')
+        scales: escalaProduto
       }
     });
 
     // ── Por Categoria (barras) ──
-    // Categorias longas prejudicavam a leitura: o eixo exibe o texto
-    // truncado com "…" e o tooltip mostra o nome completo.
+    // Mesmo padrão do Produto: eixo truncado + quantidade e percentual
+    // visíveis acima das barras (sem depender do mouse).
     var porCategoria = self._agruparPor('categoria');
+    var escalaCategoria = self._escalaComTruncamento('x');
+    escalaCategoria.y = { grace: '15%' };
     self._criarChart('ind-chart-categoria', {
       type: 'bar',
+      plugins: [self._pluginValoresBarras],
       data: {
         labels: porCategoria.labels,
         datasets: [{ label: 'Atendimentos', data: porCategoria.valores, backgroundColor: self._cores[1] }]
@@ -408,16 +620,17 @@ Pages.indicadores = {
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
-        scales: self._escalaComTruncamento('x')
+        scales: escalaCategoria
       }
     });
 
     // ── Por Canal (pizza) ──
+    // A legenda já traz "Canal — 125 (63,5%)": números sempre visíveis.
     var porCanal = self._agruparPor('canal');
     self._criarChart('ind-chart-canal', {
       type: 'pie',
       data: {
-        labels: porCanal.labels,
+        labels: self._rotulosComValores(porCanal.labels, porCanal.valores),
         datasets: [{ data: porCanal.valores, backgroundColor: self._cores }]
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: basePlugins }
@@ -426,10 +639,15 @@ Pages.indicadores = {
     // ── Por Responsável (barras horizontais) ──
     // Exibe o Top 10 + "Outros (N)": com equipes grandes as barras
     // ficavam ilegíveis. Apenas exibição — relatórios e produtividade
-    // continuam mostrando TODOS os analistas.
+    // continuam mostrando TODOS os analistas. Quantidade e percentual
+    // são desenhados no fim de cada barra ("125 (63,5%)") pelo plugin;
+    // "grace" no eixo X reserva espaço à direita para o texto.
     var porResponsavel = self._topN(self._agruparPor('responsavel'), 10);
+    var escalaResp = self._escalaComTruncamento('y');
+    escalaResp.x = { grace: '20%' };
     self._criarChart('ind-chart-responsavel', {
       type: 'bar',
+      plugins: [self._pluginValoresBarras],
       data: {
         labels: porResponsavel.labels,
         datasets: [{ label: 'Atendimentos', data: porResponsavel.valores, backgroundColor: self._cores[2] }]
@@ -439,17 +657,18 @@ Pages.indicadores = {
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
-        // Nomes longos truncados no eixo Y (nome completo no tooltip).
-        scales: self._escalaComTruncamento('y')
+        scales: escalaResp
       }
     });
 
     // ── Por Status (pizza) ──
+    // Legenda com quantidade e percentual; as CORES continuam mapeadas
+    // pelos nomes originais dos status (antes de anexar os números).
     var porStatus = self._agruparPor('status');
     self._criarChart('ind-chart-status', {
       type: 'pie',
       data: {
-        labels: porStatus.labels,
+        labels: self._rotulosComValores(porStatus.labels, porStatus.valores),
         datasets: [{
           data: porStatus.valores,
           backgroundColor: porStatus.labels.map(function(label) {
@@ -461,17 +680,19 @@ Pages.indicadores = {
     });
 
     // ── Aguardando Retorno: Área x Cliente (rosca) ──
+    // Legenda com quantidade e percentual sempre visíveis.
     var aguardando = { 'Área': 0, 'Cliente': 0 };
     self.state.dados.forEach(function(item) {
       if (!self._ehPendente(item)) return;
       var s = String(item.situacaoPendencia || '');
       if (aguardando[s] !== undefined) aguardando[s]++;
     });
+    var valoresAguardando = [aguardando['Área'], aguardando['Cliente']];
     self._criarChart('ind-chart-aguardando', {
       type: 'doughnut',
       data: {
-        labels: ['Área', 'Cliente'],
-        datasets: [{ data: [aguardando['Área'], aguardando['Cliente']], backgroundColor: [self._cores[4], self._cores[1]] }]
+        labels: self._rotulosComValores(['Área', 'Cliente'], valoresAguardando),
+        datasets: [{ data: valoresAguardando, backgroundColor: [self._cores[4], self._cores[1]] }]
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: basePlugins }
     });
