@@ -318,6 +318,8 @@ const Components = {
     var paginationId = 'pagination-' + this._paginationCounter;
     this._paginationRegistry = this._paginationRegistry || {};
     this._paginationRegistry[paginationId] = onPageChangeFnName;
+    // Descarta registros de renders antigos (correção de vazamento).
+    this._pruneRegistry(this._paginationRegistry, 'pagination-', this._paginationCounter, 20);
     var handler = function(page) {
       return "Components._changePage('" + paginationId + "'," + page + ")";
     };
@@ -392,6 +394,27 @@ const Components = {
   _pageBarCounter: 0,
   _pageBarRegistry: {},
 
+  /**
+   * Mantém apenas as entradas mais recentes de um registry interno.
+   * Correção de vazamento de memória: cada re-renderização de tabela/
+   * paginação registrava callbacks e linhas que nunca eram descartados —
+   * em sessões longas (analista com o sistema aberto o dia todo,
+   * filtrando com frequência) o consumo crescia sem limite. Como apenas
+   * o registro do último render de cada container está "vivo" no DOM,
+   * é seguro descartar os antigos.
+   * @param {Object} registry - Registry a podar (ex.: _tableRegistry).
+   * @param {string} prefixo - Prefixo das chaves (ex.: 'table-').
+   * @param {number} contadorAtual - Valor atual do contador.
+   * @param {number} manter - Quantas entradas recentes preservar.
+   */
+  _pruneRegistry: function(registry, prefixo, contadorAtual, manter) {
+    var limite = contadorAtual - manter;
+    Object.keys(registry).forEach(function(key) {
+      var num = parseInt(key.slice(prefixo.length), 10);
+      if (!isNaN(num) && num <= limite) delete registry[key];
+    });
+  },
+
   paginationBar: function(options) {
     var opts = options || {};
     var total = Number(opts.total || 0);
@@ -406,6 +429,8 @@ const Components = {
       onPageChange: opts.onPageChange,
       onPageSizeChange: opts.onPageSizeChange
     };
+    // Descarta registros de renders antigos (correção de vazamento).
+    this._pruneRegistry(this._pageBarRegistry, 'pagebar-', this._pageBarCounter, 20);
 
     // Intervalo exibido: "Exibindo X até Y de Z registros".
     var inicio = total === 0 ? 0 : (pagina - 1) * porPagina + 1;
@@ -616,6 +641,9 @@ const Components = {
       actions: opts.actions,
       onSort: opts.onSort
     };
+    // Descarta registros de renders antigos (correção de vazamento:
+    // as linhas de cada render ficavam retidas para sempre na memória).
+    this._pruneRegistry(this._tableRegistry, 'table-', this._tableCounter, 20);
 
     var html = '<div class="table-container"><table class="data-table"><thead><tr>';
 
