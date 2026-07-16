@@ -281,6 +281,27 @@ Pages.indicadores = {
   },
 
   /**
+   * Limita um agrupamento aos N maiores itens e agrega o restante em
+   * "Outros (qtd)". Regra de EXIBIÇÃO do gráfico apenas: os relatórios
+   * detalhados, o Painel de Produtividade e as exportações continuam
+   * usando o conjunto completo de dados — nenhum item é descartado.
+   * @param {Object} agrupado - { labels, valores } ordenado desc.
+   * @param {number} n - Quantos itens exibir individualmente.
+   * @returns {Object} { labels, valores } com no máximo n+1 itens.
+   */
+  _topN: function(agrupado, n) {
+    if (agrupado.labels.length <= n) return agrupado;
+    var labels = agrupado.labels.slice(0, n);
+    var valores = agrupado.valores.slice(0, n);
+    var resto = agrupado.valores.slice(n);
+    var somaOutros = 0;
+    for (var i = 0; i < resto.length; i++) somaOutros += resto[i];
+    labels.push('Outros (' + resto.length + ')');
+    valores.push(somaOutros);
+    return { labels: labels, valores: valores };
+  },
+
+  /**
    * Configuração de eixo com rótulos truncados para gráficos de barras.
    * A rotação é limitada a 45° e só é aplicada pelo Chart.js quando
    * realmente necessário (comportamento padrão do autoSkip).
@@ -403,7 +424,10 @@ Pages.indicadores = {
     });
 
     // ── Por Responsável (barras horizontais) ──
-    var porResponsavel = self._agruparPor('responsavel');
+    // Exibe o Top 10 + "Outros (N)": com equipes grandes as barras
+    // ficavam ilegíveis. Apenas exibição — relatórios e produtividade
+    // continuam mostrando TODOS os analistas.
+    var porResponsavel = self._topN(self._agruparPor('responsavel'), 10);
     self._criarChart('ind-chart-responsavel', {
       type: 'bar',
       data: {

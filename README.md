@@ -248,6 +248,14 @@ Indicadores consolidados das três abas de canal, em uma única chamada ao servi
   mesmo com o painel fechado. A **pesquisa rápida** localiza registros por qualquer
   informação visível na tabela, inclusive campos personalizados. "Limpar Filtros"
   devolve a tabela ao estado original;
+- **Coluna "Aberto há"**: idade do caso em dias com badge de cor gradual e
+  discreta (neutro até 3 dias, âmbar de 4 a 7, vermelho suave acima de 7) —
+  destaca os casos que precisam de atenção sem alarmar. Concluídos exibem "—";
+- **KPIs clicáveis**: um toque em Pendentes, Em análise, Concluídos ou
+  Aguardando Retorno aplica o filtro correspondente e rola até a tabela;
+- **Filtros rápidos**: atalhos de um clique acima da tabela — Meus pendentes
+  (exibido quando o usuário logado é um responsável), Aguardando Cliente,
+  Aguardando Área, Abertos hoje e Todos;
 - **Textos longos**: células com mais de 40 caracteres (ex.: Assunto, Observações)
   são truncadas com "…" — o clique abre um modal com o conteúdo completo,
   selecionável e com botão de copiar;
@@ -271,9 +279,10 @@ Tela exclusiva de Supervisor/ADM com análise visual da operação (Chart.js):
 - **Cards de resumo**: Total, Pendentes, Em análise, Concluídos, Aguardando Área e
   Aguardando Cliente;
 - **Gráficos**: atendimentos por dia (linha), por produto (barras), por categoria
-  (barras), por canal (pizza), por responsável (barras horizontais), por status
-  (pizza), aguardando retorno Área x Cliente (rosca) e evolução diária acumulada no
-  período (linha);
+  (barras), por canal (pizza), por responsável (barras horizontais — **Top 10 +
+  "Outros (N)"**, apenas na exibição do gráfico; relatórios, produtividade e
+  exportações continuam com todos os analistas), por status (pizza), aguardando
+  retorno Área x Cliente (rosca) e evolução diária acumulada no período (linha);
 - As cores de texto/grade dos gráficos acompanham o tema ativo (inclusive Dark).
 
 ## Sistema de Temas

@@ -571,7 +571,10 @@ const Components = {
   /* ──────────────────────────────────────────────
      KPI Card
   ────────────────────────────────────────────── */
-  kpiCard: function(icon, value, label, color, trend) {
+  // onclickJs (opcional): expressão JS executada no clique do cartão —
+  // torna o KPI clicável (ex.: aplicar filtro correspondente na tabela).
+  // Parâmetro adicional é retrocompatível: chamadas antigas seguem iguais.
+  kpiCard: function(icon, value, label, color, trend, onclickJs) {
     color = color || '#0046C0';
 
     var trendHtml = '';
@@ -584,7 +587,11 @@ const Components = {
       '</div>';
     }
 
-    return '<div class="kpi-card" style="border-left-color:' + color + '">' +
+    var clickAttrs = onclickJs
+      ? ' onclick="' + onclickJs + '" title="Clique para filtrar a tabela"'
+      : '';
+
+    return '<div class="kpi-card' + (onclickJs ? ' kpi-clickable' : '') + '" style="border-left-color:' + color + '"' + clickAttrs + '>' +
       '<div class="kpi-icon" style="background:' + color + '">' +
         '<span class="material-icons">' + (icon || 'analytics') + '</span>' +
       '</div>' +

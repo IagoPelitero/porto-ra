@@ -139,11 +139,25 @@ Pages.dashboard = {
     html += '</div>';
 
     html += '<div class="card" style="margin-top: 24px;">';
-    html += '  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">';
+    html += '  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">';
     html += '    <h2 style="margin:0;font-size:1.15rem;font-weight:600;">Atendimentos <span id="dashboard-contagem" class="badge" style="font-size:13px;vertical-align:middle;">0</span></h2>';
     html += '    <div class="search-box" style="max-width:340px;flex:1;">';
     html += '      <input type="text" id="dashboard-busca" class="form-control" placeholder="🔍 Pesquisa rápida em qualquer campo...">';
     html += '    </div>';
+    html += '  </div>';
+
+    // ── Filtros rápidos (atalhos de um clique) ──
+    // Combinações mais usadas no dia a dia do analista; "Meus pendentes"
+    // só aparece se o usuário logado estiver na lista de responsáveis.
+    html += '  <div class="quick-filters" id="dashboard-atalhos">';
+    var meuNome = (App.user || {}).nome || '';
+    if (meuNome && (dd.responsaveis || []).indexOf(meuNome) !== -1) {
+      html += '<button class="quick-filter-btn" onclick="Pages.dashboard._atalho(\'meus\')">📌 Meus pendentes</button>';
+    }
+    html += '<button class="quick-filter-btn" onclick="Pages.dashboard._atalho(\'aguardCliente\')">👤 Aguardando Cliente</button>';
+    html += '<button class="quick-filter-btn" onclick="Pages.dashboard._atalho(\'aguardArea\')">🏢 Aguardando Área</button>';
+    html += '<button class="quick-filter-btn" onclick="Pages.dashboard._atalho(\'hoje\')">📅 Abertos hoje</button>';
+    html += '<button class="quick-filter-btn" onclick="Pages.dashboard._atalho(\'todos\')">✨ Todos</button>';
     html += '  </div>';
     html += '  <div id="dashboard-tabela">' + Components.emptyState('sync', 'Carregando atendimentos...') + '</div>';
     html += '  <div id="dashboard-paginacao"></div>';
@@ -348,11 +362,17 @@ Pages.dashboard = {
     cards = cards || {};
     porSituacao = porSituacao || {};
 
+    // KPIs clicáveis: um toque no cartão aplica o filtro correspondente
+    // na tabela e rola até ela (menos digitação para o analista).
     var html = '';
-    html += Components.kpiCard('assignment', App.formatNumber(cards.totalAtendimentos || 0), 'Total de Atendimentos', '#0046C0');
-    html += Components.kpiCard('hourglass_empty', App.formatNumber(cards.pendentes || 0), 'Pendentes', '#FF9800');
-    html += Components.kpiCard('person_search', App.formatNumber(cards.emAnalise || 0), 'Em análise', '#2196F3');
-    html += Components.kpiCard('check_circle', App.formatNumber(cards.concluidos || 0), 'Concluídos', '#43A047');
+    html += Components.kpiCard('assignment', App.formatNumber(cards.totalAtendimentos || 0), 'Total de Atendimentos', '#0046C0', null,
+      "Pages.dashboard.filtrarPorKpi('')");
+    html += Components.kpiCard('hourglass_empty', App.formatNumber(cards.pendentes || 0), 'Pendentes', '#FF9800', null,
+      "Pages.dashboard.filtrarPorKpi('Pendente')");
+    html += Components.kpiCard('person_search', App.formatNumber(cards.emAnalise || 0), 'Em análise', '#2196F3', null,
+      "Pages.dashboard.filtrarPorKpi('Em análise')");
+    html += Components.kpiCard('check_circle', App.formatNumber(cards.concluidos || 0), 'Concluídos', '#43A047', null,
+      "Pages.dashboard.filtrarPorKpi('Concluído')");
 
     var situacaoIcones = { 'Área': 'apartment', 'Cliente': 'person' };
     var situacaoCores = { 'Área': '#9C27B0', 'Cliente': '#00A3E0' };
@@ -361,7 +381,9 @@ Pages.dashboard = {
         situacaoIcones[situacao] || 'pending_actions',
         App.formatNumber(porSituacao[situacao] || 0),
         'Aguardando Retorno — ' + situacao,
-        situacaoCores[situacao] || '#607D8B'
+        situacaoCores[situacao] || '#607D8B',
+        null,
+        "Pages.dashboard.filtrarPorKpi('Pendente','" + App.escapeHtml(situacao) + "')"
       );
     });
 
@@ -500,6 +522,10 @@ Pages.dashboard = {
   _colunasTabela: function() {
     var fixas = [
       { campo: 'dataAbertura', label: 'Data', base: true },
+      // Coluna virtual "Aberto há": idade do caso em dias, com badge de
+      // cor gradual — destaca os casos que precisam de mais atenção sem
+      // alarmar (tons suaves). Concluídos mostram "—".
+      { campo: '_idade', label: 'Aberto há', base: true },
       { campo: 'cliente', label: 'Cliente', base: true },
       { campo: 'cpf', label: 'CPF', base: true },
       { campo: 'produto', label: 'Produto', base: true },
@@ -533,6 +559,7 @@ Pages.dashboard = {
    */
   _valorCelula: function(item, col) {
     if (col.campo === 'dataAbertura') return App.formatDateBR(item.dataAbertura);
+    if (col.campo === '_idade') return this._badgeIdade(item);
     if (col.campo === 'status') return Components.statusBadge(item.status, item.statusCor || null);
     if (col.campo === 'situacaoPendencia') return App.escapeHtml(item.situacaoPendencia || '—');
     if (col.campo === 'cliente') return App.escapeHtml(item.cliente || '');
@@ -546,6 +573,95 @@ Pages.dashboard = {
     // conteúdo COMPLETO, selecionável e com botão de copiar
     // (Components.longText — mesmo comportamento em todas as tabelas).
     return Components.longText(valor, 40);
+  },
+
+  /**
+   * Badge de idade do caso ("Aberto há"): quantos dias o atendimento
+   * está aberto, com cor gradual e discreta para orientar a priorização
+   * sem gerar alarme visual.
+   * Regra de negócio: até 3 dias = neutro; 4 a 7 dias = atenção (âmbar
+   * suave); acima de 7 dias = crítico (vermelho suave). Casos concluídos
+   * não têm idade (exibem "—").
+   * @param {Object} item - Atendimento (formato do cliente).
+   * @returns {string} HTML seguro do badge.
+   */
+  _badgeIdade: function(item) {
+    // Concluído não precisa de atenção: célula neutra.
+    if (String(item.status || '').toLowerCase().indexOf('conclu') === 0) return '—';
+    var abertura = App.parseDate(item.dataAbertura);
+    if (!abertura) return '—';
+    var dias = Math.floor((Date.now() - abertura.getTime()) / 86400000);
+    if (dias < 0) dias = 0;
+    var classe = dias <= 3 ? 'idade-recente' : (dias <= 7 ? 'idade-atencao' : 'idade-critica');
+    var rotulo = dias === 0 ? 'hoje' : dias + 'd';
+    return '<span class="idade-badge ' + classe + '" title="Aberto há ' + dias + ' dia(s)">' + rotulo + '</span>';
+  },
+
+  /**
+   * Aplica um filtro a partir do clique em um cartão KPI: um toque
+   * filtra a tabela pelo status (e situação, quando for "Aguardando
+   * Retorno") e rola suavemente até a lista.
+   * @param {string} status - Status a filtrar ('' limpa o filtro).
+   * @param {string} situacao - "Aguardando Retorno de" (opcional).
+   */
+  filtrarPorKpi: function(status, situacao) {
+    var st = document.getElementById(this._filtroIds.status);
+    var si = document.getElementById(this._filtroIds.situacao);
+    if (st) st.value = status || '';
+    if (si) si.value = situacao || '';
+    this._lerFiltros();
+    this.state.pagina = 1;
+    this.filtrarLocal();
+    this.renderizarTabela();
+    this._renderChips();
+    // Leva o usuário direto ao resultado.
+    var tabela = document.getElementById('dashboard-tabela');
+    var card = tabela ? tabela.closest('.card') : null;
+    if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  /**
+   * Filtros rápidos predefinidos (atalhos acima da tabela): aplicam
+   * combinações comuns com um clique, reduzindo a carga cognitiva do
+   * analista. Cada atalho LIMPA os filtros anteriores antes de aplicar.
+   * @param {string} tipo - 'meus' | 'aguardCliente' | 'aguardArea' |
+   *                        'hoje' | 'todos'.
+   */
+  _atalho: function(tipo) {
+    var self = this;
+    // Zera todos os inputs de filtro (mantém a pesquisa rápida).
+    Object.keys(self._filtroIds).forEach(function(key) {
+      var el = document.getElementById(self._filtroIds[key]);
+      if (el) el.value = '';
+    });
+
+    var setar = function(key, valor) {
+      var el = document.getElementById(self._filtroIds[key]);
+      if (el) el.value = valor;
+    };
+
+    if (tipo === 'meus') {
+      // Pendentes sob responsabilidade do usuário logado.
+      setar('responsavel', (App.user || {}).nome || '');
+      setar('status', 'Pendente');
+    } else if (tipo === 'aguardCliente') {
+      setar('status', 'Pendente');
+      setar('situacao', 'Cliente');
+    } else if (tipo === 'aguardArea') {
+      setar('status', 'Pendente');
+      setar('situacao', 'Área');
+    } else if (tipo === 'hoje') {
+      var hoje = App.toInputDate(new Date());
+      setar('dataInicio', hoje);
+      setar('dataFim', hoje);
+    }
+    // 'todos' apenas limpa (inputs já zerados acima).
+
+    this._lerFiltros();
+    this.state.pagina = 1;
+    this.filtrarLocal();
+    this.renderizarTabela();
+    this._renderChips();
   },
 
   /**

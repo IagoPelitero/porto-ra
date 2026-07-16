@@ -1066,6 +1066,73 @@ input, select, textarea, button {
   opacity: 1;
 }
 
+/* ── Badge de idade do caso ("Aberto há") ──
+   Tons SUAVES de propósito: orientam a priorização sem gerar alarme
+   visual/ansiedade. Cores fixas (legíveis em todos os temas). */
+.idade-badge {
+  display: inline-block;
+  min-width: 34px;
+  text-align: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.idade-recente {
+  background: #EEF1F4;
+  color: #5A6572;
+}
+
+.idade-atencao {
+  background: #FFF3E0;
+  color: #A85E00;
+}
+
+.idade-critica {
+  background: #FDECEA;
+  color: #B3261E;
+}
+
+/* ── KPI clicável ──
+   Indica interatividade (cursor + leve elevação no hover). */
+.kpi-card.kpi-clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kpi-card.kpi-clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(16, 24, 40, 0.12));
+}
+
+/* ── Filtros rápidos (atalhos de um clique acima da tabela) ── */
+.quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.quick-filter-btn {
+  border: 1px solid var(--border);
+  background: var(--surface, #fff);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s);
+}
+
+.quick-filter-btn:hover {
+  border-color: var(--primary-blue, #0046C0);
+  color: var(--primary-blue, #0046C0);
+  background: var(--light-blue, #E8F0FE);
+}
+
 .data-table tbody td.actions {
   white-space: nowrap;
 }
