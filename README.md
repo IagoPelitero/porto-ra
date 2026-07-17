@@ -11,9 +11,11 @@ Desenvolvido por **Pelitero Labs**.
 
 O **Prisma RA** é um produto da Pelitero Labs para equipes que tratam manifestações de
 clientes recebidas por múltiplos canais — no cenário de exemplo, uma célula de
-**Reclame Aqui**, com os canais *Reclame Aqui*, *Chat Privado do Reclame Aqui* e
-*SAC Preventivo*. O sistema registra, distribui e acompanha cada atendimento até a
-conclusão, com trilha de auditoria completa.
+**Reclame Aqui**, com os canais padrão *Reclame Aqui* e *SAC Preventivo*. Desde a
+v4.2 os canais são **administráveis pela tela de Configurações** (exclusivo do ADM):
+novos canais podem ser criados, editados e excluídos sem alteração de código. O
+sistema registra, distribui e acompanha cada atendimento até a conclusão, com trilha
+de auditoria completa.
 
 ### Objetivos
 
@@ -22,6 +24,29 @@ conclusão, com trilha de auditoria completa.
 - Permitir que o formulário de cadastro seja **configurável sem alteração de código**;
 - Manter histórico auditável de toda alteração (quem, quando, o quê e por quê);
 - Rodar 100% dentro do Google Workspace, sem infraestrutura adicional.
+
+### Novidades da v4.2
+
+- **Canais administráveis**: nova seção *Canais* em Configurações (ADM) para
+  adicionar, editar e excluir canais, armazenados na aba `Canais` do Google Sheets.
+  Nenhuma alteração de código é necessária para criar canais futuros; o formulário
+  de Novo Atendimento, o Dashboard, os Indicadores e os filtros refletem as
+  alterações automaticamente (recarga do bootstrap, sem recarregar a aplicação);
+- **Canal Chat Privado descontinuado**: os canais padrão passam a ser apenas
+  *Reclame Aqui* e *SAC Preventivo*; migração automática move os atendimentos da
+  antiga aba `ChatPrivadoRA` para `ReclameAqui`;
+- **Exclusão definitiva de categorias**: excluir uma categoria agora exige
+  confirmação e remove a linha da aba `Categorias` do Google Sheets (não é mais
+  desativação lógica), atualizando listas suspensas, filtros e indicadores. A
+  exclusão de canais segue a mesma regra, com guarda para o sistema nunca ficar sem
+  canal ativo;
+- **Indicadores → Atendimentos por Categoria**: cada categoria exibe quantidade e
+  percentual — ex.: `58 (34,5%)` — nas barras, na legenda e no tooltip, calculados
+  sobre o total de atendimentos filtrados;
+- **Correção do tema Dark**: a zebra da tabela de atendimentos (e superfícies
+  correlatas) usava a cor fixa `#FAFBFC`, gerando faixas brancas e pretas alternadas
+  no tema escuro; agora a cor vem da variável de tema `--surface-muted`, com
+  contraste adequado em todos os temas.
 
 ### Tecnologias utilizadas
 
@@ -196,7 +221,8 @@ das definições de colunas em Config.gs.
 
 | Aba | Conteúdo |
 | --- | --- |
-| **ReclameAqui / ChatPrivadoRA / SACPreventivo** | Atendimentos de cada canal — mesmas colunas nas três abas (protocolo, cliente, CPF, produto, categoria, canal, status, aguardando retorno, responsável, datas, observações, `CamposExtras` em JSON e auditoria de criação/exclusão). O *Chat Privado* faz parte do Reclame Aqui, mas tem aba própria para controle operacional. |
+| **ReclameAqui / SACPreventivo** | Atendimentos de cada canal — mesmas colunas nas duas abas (protocolo, cliente, CPF, produto, categoria, canal, status, aguardando retorno, responsável, datas, observações, `CamposExtras` em JSON e auditoria de criação/exclusão). Canais criados pelo ADM sem aba própria são gravados na aba ReclameAqui — a coluna `Canal` de cada linha preserva o canal real selecionado. *(v4.2: o canal Chat Privado foi descontinuado; os atendimentos da antiga aba ChatPrivadoRA são migrados automaticamente para ReclameAqui.)* |
+| **Canais** | *(v4.2)* Canais de entrada administráveis pelo ADM (nome, ativo, ordem). Toda alteração é refletida automaticamente no formulário de Novo Atendimento, no Dashboard, nos Indicadores e nos filtros. |
 | **ConfigCampos** | Configuração dinâmica do formulário (campo, rótulo, tipo, exibir, obrigatório, ordem, base/bloqueado). |
 | **Timeline** | Eventos cronológicos de cada atendimento. |
 | **Histórico** | Registro imutável (somente inserção) de alterações, com valor anterior/novo, usuário e justificativa. |
@@ -205,8 +231,11 @@ das definições de colunas em Config.gs.
 
 **Migrações automáticas** (executadas uma única vez, controladas por Script
 Properties versionadas): estrutura das abas (`SCHEMA_VERSION`), movimentação dos
-atendimentos legados para as abas por canal, normalização de status e catálogo, e
-migração das chaves de propriedades de versões anteriores do produto.
+atendimentos legados para as abas por canal, normalização de status e catálogo,
+migração das chaves de propriedades de versões anteriores do produto e, na v4.2, a
+descontinuação do canal *Chat Privado* — os atendimentos da aba `ChatPrivadoRA` são
+movidos para `ReclameAqui` (com `Canal = "Reclame Aqui"`) e a aba antiga é removida,
+sem perda de nenhum registro.
 
 ---
 
@@ -235,7 +264,7 @@ Indicadores consolidados das três abas de canal, em uma única chamada ao servi
 - **KPIs gerais**: total de atendimentos, pendentes, em análise, concluídos e
   pendências por "Aguardando Retorno de" (Área/Cliente);
 - **Por canal**: cartões com total e barras proporcionais de pendentes / em análise /
-  concluídos para Reclame Aqui, Chat Privado e SAC Preventivo;
+  concluídos para cada canal cadastrado (lista dinâmica da aba Canais — v4.2);
 - **Tabela dinâmica**: as colunas seguem sempre a ordem Data, Cliente, CPF, Produto,
   Categoria, Responsável e, na sequência, os demais campos visíveis da ConfigCampos
   (status, aguardando retorno, protocolo, canal, observações e campos criados pelo

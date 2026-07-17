@@ -23,7 +23,10 @@
  *   - Quando Pendente, "Aguardando Retorno de" (Área/Cliente) é obrigatório
  *     (SITUACOES_PENDENCIA em Config.gs); oculto nos demais status.
  *   - Atendimentos são gravados em abas separadas por canal (ReclameAqui,
- *     ChatPrivadoRA, SACPreventivo); consultas consolidam as três abas.
+ *     SACPreventivo); consultas consolidam todas as abas. Canais criados
+ *     pelo ADM sem aba própria são gravados na aba ReclameAqui (a coluna
+ *     Canal preserva o canal real). Os canais são administráveis pela
+ *     tela de Configurações (aba Canais — v4.2).
  *   - Analista vê/edita apenas os próprios atendimentos; Supervisor e ADM
  *     veem todos e podem delegar/reatribuir (canAccessAtendimento_,
  *     restrictToOwnerIfNeeded_). Gestão de usuários e dos campos do
@@ -39,9 +42,9 @@ var SERVICE_CONTEXT_ = {};
 
 /**
  * Dados de apoio carregados uma única vez pelo frontend na inicialização:
- * usuário logado + listas dos formulários/filtros. Status, situações de
- * pendência e canais são fixos (Config.gs); produtos, categorias e usuários
- * vêm da planilha.
+ * usuário logado + listas dos formulários/filtros. Status e situações de
+ * pendência são fixos (Config.gs); produtos, categorias, usuários e
+ * CANAIS (v4.2 — administráveis pelo ADM) vêm da planilha.
  */
 function getBootstrapData() {
   ensureDatabaseReady();
@@ -68,7 +71,7 @@ function getBootstrapData() {
       categoriasPorProduto: categoriasPorProduto,
       status: STATUS_LIST.map(function(item) { return item.Nome; }),
       situacoesPendencia: SITUACOES_PENDENCIA.slice(),
-      canais: CANAIS_LIST.slice(),
+      canais: getCanaisAtivos_(), // v4.2: lista dinâmica (aba Canais)
       responsaveis: pluck_(usuarios, 'Nome'),
       statusCores: getStatusColorMap_()
     }
@@ -113,6 +116,19 @@ function activeSorted_(sheetName) {
       return Number(a.Ordem || 9999) - Number(b.Ordem || 9999) ||
         String(a.Nome || '').localeCompare(String(b.Nome || ''), 'pt-BR');
     });
+}
+
+/**
+ * Nomes dos canais ATIVOS, na ordem definida pelo ADM (v4.2).
+ * Fonte: aba "Canais" (administrável pela tela de Configurações).
+ * Fallback de segurança: se a aba estiver vazia/indisponível, usa os
+ * canais padrão CANAIS_LIST (Config.gs) para o sistema nunca ficar sem
+ * canal no formulário de Novo Atendimento.
+ * @returns {string[]} Ex.: ['Reclame Aqui', 'SAC Preventivo'].
+ */
+function getCanaisAtivos_() {
+  const canais = pluck_(activeSorted_(CONFIG.SHEET_NAMES.CANAIS), 'Nome');
+  return canais.length > 0 ? canais : CANAIS_LIST.slice();
 }
 
 // ============================================================================
@@ -570,7 +586,8 @@ function validateAtendimentoInput_(dados) {
   // Regras fixas do fluxo (independem da ConfigCampos): o Canal define a aba
   // onde o atendimento é gravado e o Status controla o ciclo de vida.
   if (!input.canal) throw new Error('Canal é obrigatório.');
-  const canalValido = CANAIS_LIST.some(function(canal) {
+  // v4.2: valida contra os canais ATIVOS cadastrados pelo ADM (aba Canais).
+  const canalValido = getCanaisAtivos_().some(function(canal) {
     return normalizeText_(canal) === normalizeText_(input.canal);
   });
   if (!canalValido) throw new Error('Canal inválido.');
@@ -902,20 +919,28 @@ function getDashboardData() {
   const porSituacao = {};
   SITUACOES_PENDENCIA.forEach(function(situacao) { porSituacao[situacao] = 0; });
 
-  // Indicadores por canal (ReclameAqui, ChatPrivadoRA e SACPreventivo).
+  // Indicadores por canal (v4.2: lista dinâmica da aba Canais).
+  // Canais presentes nos registros mas já excluídos/desativados também
+  // ganham um cartão, para nenhum atendimento sumir dos indicadores.
+  const canaisAtivos = getCanaisAtivos_();
   const porCanal = {};
-  CANAIS_LIST.forEach(function(canal) {
+  canaisAtivos.forEach(function(canal) {
     porCanal[canal] = { total: 0, pendentes: 0, emAnalise: 0, concluidos: 0 };
+  });
+  const canalIndexNormalizado = {};
+  canaisAtivos.forEach(function(canal) {
+    canalIndexNormalizado[normalizeText_(canal)] = canal;
   });
 
   records.forEach(function(record) {
-    let bucket = null;
-    for (let i = 0; i < CANAIS_LIST.length; i++) {
-      if (normalizeText_(CANAIS_LIST[i]) === normalizeText_(record.canal)) {
-        bucket = porCanal[CANAIS_LIST[i]];
-        break;
-      }
+    let nomeCanal = canalIndexNormalizado[normalizeText_(record.canal)];
+    if (!nomeCanal && record.canal) {
+      // Canal legado/excluído: cria o cartão sob demanda.
+      nomeCanal = String(record.canal);
+      canalIndexNormalizado[normalizeText_(nomeCanal)] = nomeCanal;
+      porCanal[nomeCanal] = { total: 0, pendentes: 0, emAnalise: 0, concluidos: 0 };
     }
+    const bucket = nomeCanal ? porCanal[nomeCanal] : null;
     if (bucket) bucket.total++;
 
     if (isFinalStatus_(record.status)) {
@@ -1032,6 +1057,24 @@ function salvarConfiguracao(entidade, dados, id) {
 
   let recordId = sanitizeInput(id);
   const exists = recordId ? getById(meta.sheet, recordId) : null;
+
+  // v4.2: regras dos canais administráveis.
+  if (meta.key === 'canais') {
+    // Nome único (comparação sem acentos/caixa).
+    if (record.Nome) {
+      const nomeNormalizado = normalizeText_(record.Nome);
+      const duplicado = getAll(CONFIG.SHEET_NAMES.CANAIS).some(function(canal) {
+        return String(canal.Id) !== String(recordId || '') &&
+          normalizeText_(canal.Nome) === nomeNormalizado;
+      });
+      if (duplicado) throw new Error('Já existe um canal com este nome.');
+    }
+    // O sistema nunca pode ficar sem canal ativo (o Canal é obrigatório
+    // no formulário de Novo Atendimento).
+    if (exists && isTrue_(exists.Ativo) && record.Ativo === false) {
+      assertOutroCanalAtivo_(recordId);
+    }
+  }
   if (meta.key === 'usuarios' && exists && isTrue_(exists.Ativo) &&
       normalizeText_(exists.Perfil) === 'adm' &&
       (!isTrue_(record.Ativo) || normalizeText_(record.Perfil) !== 'adm')) {
@@ -1110,11 +1153,24 @@ function excluirConfiguracao(entidade, id) {
       throw new Error('Campos padrão não podem ser removidos. Desmarque "Exibir" para ocultá-los do formulário.');
     }
     remove(meta.sheet, safeId);
+  } else if (meta.key === 'categorias') {
+    // v4.2: exclusão DEFINITIVA de categorias — a linha é removida da aba
+    // Categorias do Google Sheets (não é mais desativação lógica). O
+    // Histórico registra a exclusão e todas as listas suspensas, filtros
+    // e indicadores são atualizados via invalidateAllCache + reload do
+    // bootstrap no frontend.
+    remove(meta.sheet, safeId);
+  } else if (meta.key === 'canais') {
+    // v4.2: exclusão DEFINITIVA de canais, com guarda para o sistema
+    // nunca ficar sem canal ativo.
+    if (isTrue_(existing.Ativo)) assertOutroCanalAtivo_(safeId);
+    remove(meta.sheet, safeId);
   } else {
     // Desativação lógica preserva o histórico dos atendimentos já vinculados.
     update(meta.sheet, safeId, { Ativo: false });
   }
-  auditConfiguration_(meta.key === 'camposFormulario' ? 'Exclusão' : 'Desativação', meta.label, safeId, existing);
+  const acoesDefinitivas = ['camposFormulario', 'categorias', 'canais'];
+  auditConfiguration_(acoesDefinitivas.indexOf(meta.key) !== -1 ? 'Exclusão' : 'Desativação', meta.label, safeId, existing);
   invalidateAllCache();
   SERVICE_CONTEXT_ = {};
   return { success: true };
@@ -1134,6 +1190,11 @@ function getConfigurationEntities_() {
     categorias: {
       key: 'categorias', label: 'Categorias', sheet: CONFIG.SHEET_NAMES.CATEGORIAS,
       columns: COLUMNS.CATEGORIAS, prefix: 'CT'
+    },
+    // v4.2: canais de entrada administráveis (exclusivo do ADM).
+    canais: {
+      key: 'canais', label: 'Canais', sheet: CONFIG.SHEET_NAMES.CANAIS,
+      columns: COLUMNS.CANAIS, prefix: 'CN', adminOnly: true
     },
     usuarios: {
       key: 'usuarios', label: 'Usuários e responsáveis', sheet: CONFIG.SHEET_NAMES.USUARIOS,
@@ -1178,6 +1239,22 @@ function auditConfiguration_(action, label, id, value) {
     Usuario: getActor_().nome,
     Justificativa: 'Alteração realizada pela tela de Configurações.'
   });
+}
+
+/**
+ * Garante que exista OUTRO canal ativo antes de excluir/desativar um
+ * canal (v4.2) — o Canal é obrigatório no formulário de Novo Atendimento
+ * e o sistema não pode ficar sem opções.
+ * @param {string} ignoredId - Id do canal sendo alterado.
+ * @throws {Error} Quando não há outro canal ativo.
+ */
+function assertOutroCanalAtivo_(ignoredId) {
+  const outrosAtivos = getAll(CONFIG.SHEET_NAMES.CANAIS).filter(function(canal) {
+    return String(canal.Id) !== String(ignoredId) && isTrue_(canal.Ativo);
+  });
+  if (!outrosAtivos.length) {
+    throw new Error('Cadastre outro canal ativo antes de excluir/desativar este.');
+  }
 }
 
 /**

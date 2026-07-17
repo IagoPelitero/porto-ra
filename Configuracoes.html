@@ -6,11 +6,15 @@
    ------------------------------------------------------------
    GUIA PARA QUEM ESTÁ COMEÇANDO
    Esta tela mostra as "listas cadastráveis" do sistema: Produtos,
-   Categorias, Usuários (só ADM) e Campos do formulário (só ADM).
-   Status ("Pendente"/"Em análise"/"Concluído"), "Aguardando Retorno de"
-   (Área/Cliente) e canais ("Reclame Aqui"/"Chat Privado"/"SAC Preventivo")
-   são regras fixas do fluxo, definidas em Config.gs, e por isso não
-   aparecem aqui.
+   Categorias, Canais (só ADM), Usuários (só ADM) e Campos do formulário
+   (só ADM). Status ("Pendente"/"Em análise"/"Concluído") e "Aguardando
+   Retorno de" (Área/Cliente) são regras fixas do fluxo, definidas em
+   Config.gs, e por isso não aparecem aqui.
+   v4.2: os CANAIS deixaram de ser fixos — o ADM adiciona, edita e exclui
+   canais por aqui; o formulário de Novo Atendimento, o Dashboard, os
+   Indicadores e os filtros refletem automaticamente cada alteração.
+   v4.2: excluir uma CATEGORIA ou um CANAL agora remove DEFINITIVAMENTE a
+   linha da aba correspondente do Google Sheets (após confirmação).
 
    "metadata" (logo abaixo) descreve, para cada tipo de cadastro, quais
    campos existem no formulário (nome, tipo de campo, se é obrigatório).
@@ -38,10 +42,24 @@ Pages.configuracoes = {
     },
     categorias: {
       label: 'Categorias', icon: 'category',
+      // v4.2: exclusão definitiva (a linha é removida da aba Categorias).
+      permanentDelete: true,
       fields: [
         { key: 'ProdutoId', label: 'Produto', type: 'reference', source: 'produtos', allowBlank: true },
         { key: 'Nome', label: 'Nome', required: true },
         { key: 'Descricao', label: 'Descrição', type: 'textarea' },
+        { key: 'Ativo', label: 'Ativo', type: 'checkbox', defaultValue: true },
+        { key: 'Ordem', label: 'Ordem', type: 'number' }
+      ]
+    },
+    // v4.2: canais de entrada administráveis pelo ADM. Toda alteração é
+    // refletida automaticamente no formulário de Novo Atendimento, no
+    // Dashboard, nos Indicadores e nos filtros (via App.reloadBootstrap).
+    canais: {
+      label: 'Canais', icon: 'hub', adminOnly: true,
+      permanentDelete: true,
+      fields: [
+        { key: 'Nome', label: 'Nome', required: true },
         { key: 'Ativo', label: 'Ativo', type: 'checkbox', defaultValue: true },
         { key: 'Ordem', label: 'Ordem', type: 'number' }
       ]
@@ -150,9 +168,11 @@ Pages.configuracoes = {
       meta.fields.forEach(function(field) {
         html += '<td>' + self.formatCell(row[field.key], field) + '</td>';
       });
+      // v4.2: entidades com exclusão definitiva mostram o título "Excluir".
+      var tituloRemover = meta.permanentDelete ? 'Excluir' : 'Desativar';
       html += '<td class="actions">' +
         '<button class="btn-action" title="Editar" onclick="Pages.configuracoes.openForm(' + index + ')">✏️</button>' +
-        '<button class="btn-action" title="Desativar" onclick="Pages.configuracoes.remove(' + index + ')">🗑️</button>' +
+        '<button class="btn-action" title="' + tituloRemover + '" onclick="Pages.configuracoes.remove(' + index + ')">🗑️</button>' +
         '</td></tr>';
     });
     html += '</tbody></table></div>';
@@ -280,7 +300,15 @@ Pages.configuracoes = {
     if (!row) return;
     var id = row.Id;
     var self = this;
-    Components.confirm('Deseja desativar/remover este registro?', function() {
+    var meta = this.metadata[this.active];
+    // v4.2: mensagem de confirmação específica para exclusões DEFINITIVAS
+    // (categorias e canais): a linha é removida da aba do Google Sheets e
+    // todas as listas suspensas, filtros e indicadores são atualizados.
+    var mensagem = meta.permanentDelete
+      ? 'Excluir DEFINITIVAMENTE "' + App.escapeHtml(row.Nome || id) + '"? ' +
+        'O registro será removido da planilha do Google Sheets e esta ação não pode ser desfeita.'
+      : 'Deseja desativar/remover este registro?';
+    Components.confirm(mensagem, function() {
       Components.showLoading('Atualizando configuração...');
       google.script.run
         .withSuccessHandler(function() {

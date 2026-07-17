@@ -19,9 +19,10 @@
  *   2) COLUMNS       → a ordem exata das colunas de cada aba da planilha.
  *                      ⚠️ Nunca apague uma coluna que já tem dados sem antes
  *                      migrar os dados antigos.
- *   3) Listas fixas  → STATUS_LIST, SITUACOES_PENDENCIA e CANAIS_LIST são
- *                      regras de negócio fixas da célula de Reclame Aqui e
- *                      não são administráveis pela tela de Configurações.
+ *   3) Listas fixas  → STATUS_LIST e SITUACOES_PENDENCIA são regras de
+ *                      negócio fixas da célula de Reclame Aqui. Os CANAIS
+ *                      (v4.2) passaram a ser administráveis pela tela de
+ *                      Configurações (aba "Canais" — DEFAULT_CANAIS).
  *   4) DEFAULT_*     → produtos e categorias iniciais, inseridos apenas na
  *                      primeira criação da planilha. Depois disso, edite
  *                      pela tela de Configurações do sistema.
@@ -32,14 +33,17 @@
 // CONFIGURAÇÕES GERAIS DO SISTEMA
 // ============================================================================
 const CONFIG = {
-  SCHEMA_VERSION: '4.0.0',
+  SCHEMA_VERSION: '4.2.0',
   SPREADSHEET_ID: '', // Opcional. Quando vazio, usa Script Properties/planilha vinculada.
   SHEET_NAMES: {
     // Abas de atendimento separadas por canal. A aba legada "Atendimentos"
-    // é migrada automaticamente para estas três (migrateLegacyData_).
+    // é migrada automaticamente para estas abas (migrateLegacyData_).
+    // v4.2: o canal "Chat Privado" foi descontinuado — os atendimentos da
+    // antiga aba ChatPrivadoRA são migrados para ReclameAqui.
     RECLAME_AQUI: 'ReclameAqui',
-    CHAT_PRIVADO: 'ChatPrivadoRA',
     SAC_PREVENTIVO: 'SACPreventivo',
+    // v4.2: canais administráveis pela tela de Configurações (ADM).
+    CANAIS: 'Canais',
     CONFIG_CAMPOS: 'ConfigCampos',
     TIMELINE: 'Timeline',
     HISTORICO: 'Histórico',
@@ -64,7 +68,9 @@ const PROPERTY_KEYS = {
   SPREADSHEET_ID: 'PRISMA_RA_SPREADSHEET_ID',
   SCHEMA_VERSION: 'PRISMA_RA_SCHEMA_VERSION',
   CATALOG_VERSION: 'PRISMA_RA_CATALOG_VERSION',
-  CANAL_MIGRATION: 'PRISMA_RA_CANAL_MIGRATION'
+  CANAL_MIGRATION: 'PRISMA_RA_CANAL_MIGRATION',
+  // v4.2: migração única que move a aba ChatPrivadoRA para ReclameAqui.
+  CHAT_PRIVADO_MIGRATION: 'PRISMA_RA_CHAT_PRIVADO_MIGRATION'
 };
 
 // ============================================================================
@@ -146,6 +152,13 @@ const COLUMNS = {
     'Ativo',
     'Ordem'
   ],
+  // v4.2: canais de entrada administráveis (tela de Configurações — ADM).
+  CANAIS: [
+    'Id',
+    'Nome',
+    'Ativo',
+    'Ordem'
+  ],
   CATEGORIAS: [
     'Id',
     'ProdutoId',
@@ -180,12 +193,14 @@ const SITUACOES_PENDENCIA = [
 ];
 
 /**
- * Canais de entrada do atendimento. O Chat Privado faz parte do Reclame
- * Aqui, mas possui aba própria para facilitar o controle operacional.
+ * Canais de entrada PADRÃO do atendimento (v4.2).
+ * A lista efetiva de canais agora é administrável pela tela de
+ * Configurações (aba "Canais" do Google Sheets — ver DEFAULT_CANAIS).
+ * Esta constante permanece apenas como fallback de segurança, usado
+ * quando a aba Canais estiver vazia ou indisponível.
  */
 const CANAIS_LIST = [
   'Reclame Aqui',
-  'Chat Privado',
   'SAC Preventivo'
 ];
 
@@ -195,9 +210,11 @@ const CANAIS_LIST = [
  */
 const CANAL_SHEETS = [
   { canal: 'Reclame Aqui',   sheetKey: 'RECLAME_AQUI' },
-  { canal: 'Chat Privado',   sheetKey: 'CHAT_PRIVADO' },
   { canal: 'SAC Preventivo', sheetKey: 'SAC_PREVENTIVO' }
 ];
+// v4.2: canais criados pelo ADM que não possuem aba própria são gravados
+// na aba ReclameAqui (fallback de sheetNameForCanalConfig_ em Database.gs);
+// a coluna "Canal" de cada atendimento preserva o canal real selecionado.
 
 // ============================================================================
 // DADOS PADRÃO PARA INICIALIZAÇÃO (apenas primeira criação da planilha)
@@ -213,6 +230,18 @@ const CANAL_SHEETS = [
 const DEFAULT_PRODUTOS = [
   { Id: 'PD001', Nome: 'Cartão de Crédito', Descricao: 'Atendimentos do produto cartão de crédito', Ativo: true, Ordem: 1 },
   { Id: 'PD002', Nome: 'Conta Digital',     Descricao: 'Atendimentos do produto conta digital',     Ativo: true, Ordem: 2 }
+];
+
+/**
+ * Canais padrão (v4.2), inseridos apenas na primeira criação da aba
+ * "Canais". Depois disso, o ADM pode adicionar, editar e excluir canais
+ * pela tela de Configurações, sem alteração de código — o formulário de
+ * Novo Atendimento, o Dashboard, os Indicadores e os filtros refletem
+ * automaticamente as mudanças.
+ */
+const DEFAULT_CANAIS = [
+  { Id: 'CN001', Nome: 'Reclame Aqui',   Ativo: true, Ordem: 1 },
+  { Id: 'CN002', Nome: 'SAC Preventivo', Ativo: true, Ordem: 2 }
 ];
 
 /**

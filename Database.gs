@@ -109,8 +109,9 @@ function initializeSheets() {
     // Mapeamento de planilha -> colunas -> dados padrão
     const sheetsConfig = [
       { name: CONFIG.SHEET_NAMES.RECLAME_AQUI,   columns: COLUMNS.ATENDIMENTOS,  defaults: [] },
-      { name: CONFIG.SHEET_NAMES.CHAT_PRIVADO,   columns: COLUMNS.ATENDIMENTOS,  defaults: [] },
       { name: CONFIG.SHEET_NAMES.SAC_PREVENTIVO, columns: COLUMNS.ATENDIMENTOS,  defaults: [] },
+      // v4.2: canais administráveis pela tela de Configurações (ADM).
+      { name: CONFIG.SHEET_NAMES.CANAIS,         columns: COLUMNS.CANAIS,        defaults: DEFAULT_CANAIS },
       { name: CONFIG.SHEET_NAMES.CONFIG_CAMPOS,  columns: COLUMNS.CONFIG_CAMPOS, defaults: DEFAULT_CONFIG_CAMPOS },
       { name: CONFIG.SHEET_NAMES.TIMELINE,       columns: COLUMNS.TIMELINE,      defaults: [] },
       { name: CONFIG.SHEET_NAMES.HISTORICO,      columns: COLUMNS.HISTORICO,     defaults: [] },
@@ -171,14 +172,16 @@ function initializeSheets() {
 /**
  * Migração v4: remove abas descontinuadas, ressemeia o catálogo, move os
  * atendimentos da aba legada "Atendimentos" para as abas por canal
- * (ReclameAqui, ChatPrivadoRA, SACPreventivo), normaliza o fluxo de status
+ * (uma por canal), normaliza o fluxo de status
  * (Pendente / Em análise / Concluído + "Aguardando Retorno de") e garante
  * que exista um usuário ADM.
  */
 function migrateLegacyData_(ss) {
   // 1) Remove abas que deixaram de existir no fluxo simplificado.
+  // v4.2: 'Canais' foi REMOVIDA desta lista — a aba voltou a existir como
+  // cadastro administrável dos canais de entrada (não pode ser apagada).
   const obsoleteSheets = [
-    'Status', 'StatusConfig', 'Prioridades', 'Canais', 'TiposAtendimento',
+    'Status', 'StatusConfig', 'Prioridades', 'TiposAtendimento',
     'SLAs', 'MotivosPendencia', 'Dashboard', 'Relatórios', 'Relatorios',
     'Configurações', 'Configuracoes'
   ];
@@ -196,8 +199,90 @@ function migrateLegacyData_(ss) {
   // 3) Move os atendimentos legados para as abas por canal e normaliza status.
   migrateAtendimentosPorCanal_(ss);
 
-  // 4) Garante um usuário ADM (instalações antigas só tinham Supervisor).
+  // 4) v4.2: descontinua o canal "Chat Privado" — move os atendimentos da
+  //    aba ChatPrivadoRA para ReclameAqui e remove a aba antiga.
+  migrateChatPrivadoParaReclameAqui_(ss);
+
+  // 5) Garante um usuário ADM (instalações antigas só tinham Supervisor).
   promoteFirstAdmin_();
+}
+
+/**
+ * Migração v4.2 — remoção do canal "Chat Privado".
+ * Executada uma única vez (flag em Script Properties):
+ *   1) move todas as linhas da aba legada "ChatPrivadoRA" para a aba
+ *      "ReclameAqui", trocando o valor da coluna Canal para "Reclame Aqui"
+ *      (o Chat Privado sempre fez parte do Reclame Aqui);
+ *   2) remove a aba "ChatPrivadoRA" da planilha;
+ *   3) normaliza registros já gravados nas abas restantes que ainda
+ *      tenham Canal = "Chat Privado".
+ * Nenhum atendimento é perdido — apenas o canal registrado é unificado.
+ * @param {Spreadsheet} ss - Planilha principal do sistema.
+ */
+function migrateChatPrivadoParaReclameAqui_(ss) {
+  const properties = PropertiesService.getScriptProperties();
+  if (properties.getProperty(PROPERTY_KEYS.CHAT_PRIVADO_MIGRATION) === '4.2.0') return;
+
+  // Nome fixo da aba descontinuada (a constante saiu de CONFIG.SHEET_NAMES).
+  const LEGACY_CHAT_SHEET = 'ChatPrivadoRA';
+  const canalIndex = COLUMNS.ATENDIMENTOS.indexOf('Canal');
+
+  // 1) Move as linhas da aba ChatPrivadoRA para ReclameAqui.
+  const legacySheet = ss.getSheetByName(LEGACY_CHAT_SHEET);
+  if (legacySheet && legacySheet.getLastRow() > 1) {
+    const lastCol = legacySheet.getLastColumn();
+    const values = legacySheet.getRange(1, 1, legacySheet.getLastRow(), lastCol).getValues();
+    const headers = values[0].map(function(value) { return String(value); });
+    const rows = [];
+
+    for (let i = 1; i < values.length; i++) {
+      const record = {};
+      headers.forEach(function(header, index) {
+        if (header) record[header] = values[i][index];
+      });
+      if (!record.Id) continue;
+      record.Canal = 'Reclame Aqui'; // canal unificado
+      rows.push(toRowArray(record, COLUMNS.ATENDIMENTOS));
+    }
+
+    if (rows.length > 0) {
+      const target = ss.getSheetByName(CONFIG.SHEET_NAMES.RECLAME_AQUI);
+      if (target) {
+        target.getRange(target.getLastRow() + 1, 1, rows.length, COLUMNS.ATENDIMENTOS.length)
+          .setValues(rows);
+        invalidateCache(CONFIG.SHEET_NAMES.RECLAME_AQUI);
+        Logger.log('Atendimentos do Chat Privado migrados para ReclameAqui: ' + rows.length);
+      }
+    }
+  }
+
+  // 2) Remove a aba descontinuada.
+  if (legacySheet && ss.getSheets().length > 1) {
+    ss.deleteSheet(legacySheet);
+    Logger.log('Aba descontinuada removida: ' + LEGACY_CHAT_SHEET);
+  }
+
+  // 3) Normaliza registros remanescentes com Canal = "Chat Privado"
+  //    (ex.: planilhas editadas manualmente) nas abas por canal atuais.
+  CANAL_SHEETS.forEach(function(item) {
+    const sheet = ss.getSheetByName(CONFIG.SHEET_NAMES[item.sheetKey]);
+    if (!sheet || sheet.getLastRow() <= 1) return;
+    const range = sheet.getRange(2, 1, sheet.getLastRow() - 1, COLUMNS.ATENDIMENTOS.length);
+    const rows = range.getValues();
+    let changed = false;
+    rows.forEach(function(row) {
+      if (normalizeText_(row[canalIndex]) === 'chat privado') {
+        row[canalIndex] = 'Reclame Aqui';
+        changed = true;
+      }
+    });
+    if (changed) {
+      range.setValues(rows);
+      invalidateCache(sheet.getName());
+    }
+  });
+
+  properties.setProperty(PROPERTY_KEYS.CHAT_PRIVADO_MIGRATION, '4.2.0');
 }
 
 /**
@@ -387,7 +472,7 @@ function reseedCatalog_(ss) {
 }
 
 /**
- * Ajusta os nomes de produto dos atendimentos existentes (nas três abas por
+ * Ajusta os nomes de produto dos atendimentos existentes (nas abas por
  * canal) para o catálogo atual — ex.: nomes legados de "Conta Digital"
  * gravados antes do rebranding.
  * @param {Spreadsheet} ss - Planilha principal do sistema.
@@ -956,8 +1041,8 @@ function findRowById(sheet, id) {
 function getColumnsForSheet(sheetName) {
   const mapping = {};
   mapping[CONFIG.SHEET_NAMES.RECLAME_AQUI]   = COLUMNS.ATENDIMENTOS;
-  mapping[CONFIG.SHEET_NAMES.CHAT_PRIVADO]   = COLUMNS.ATENDIMENTOS;
   mapping[CONFIG.SHEET_NAMES.SAC_PREVENTIVO] = COLUMNS.ATENDIMENTOS;
+  mapping[CONFIG.SHEET_NAMES.CANAIS]         = COLUMNS.CANAIS; // v4.2
   mapping[CONFIG.SHEET_NAMES.CONFIG_CAMPOS]  = COLUMNS.CONFIG_CAMPOS;
   mapping[CONFIG.SHEET_NAMES.TIMELINE]       = COLUMNS.TIMELINE;
   mapping[CONFIG.SHEET_NAMES.HISTORICO]      = COLUMNS.HISTORICO;
