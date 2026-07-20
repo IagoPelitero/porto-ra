@@ -105,7 +105,15 @@ function initializeSheets() {
   try {
     const ss = getSpreadsheet();
     Logger.log('Iniciando inicialização das planilhas...');
-    
+
+    // Limpa o cache ANTES de migrar: se uma execução anterior deixou dados
+    // em cache com o esquema antigo, as leituras feitas durante a migração
+    // (getAll) usariam a ordem de colunas anterior. Como o cache também é
+    // limpo ao final, esta chamada é apenas uma proteção — não altera o
+    // resultado da migração, que lê as abas diretamente da planilha.
+    invalidateAllCache();
+
+
     // Mapeamento de planilha -> colunas -> dados padrão
     const sheetsConfig = [
       { name: CONFIG.SHEET_NAMES.RECLAME_AQUI,   columns: COLUMNS.ATENDIMENTOS,  defaults: [] },
@@ -826,8 +834,9 @@ function insert(sheetName, data) {
     }
     
     const columns = getColumnsForSheet(sheetName);
+    assertColumnsForSheet_(sheetName, columns);
     const rowData = toRowArray(data, columns);
-    
+
     sheet.appendRow(rowData);
     
     // Invalida cache após escrita
@@ -872,7 +881,8 @@ function update(sheetName, id, data) {
     }
     
     const columns = getColumnsForSheet(sheetName);
-    
+    assertColumnsForSheet_(sheetName, columns);
+
     // Mescla dados existentes com novos dados
     const existingData = sheet.getRange(rowIndex, 1, 1, columns.length).getValues()[0];
     const existingObj = toObject(existingData, columns);
@@ -962,7 +972,8 @@ function batchInsert(sheetName, dataArray) {
     }
     
     const columns = getColumnsForSheet(sheetName);
-    
+    assertColumnsForSheet_(sheetName, columns);
+
     const rows = dataArray.map(function(data) {
       return toRowArray(data, columns);
     });
@@ -1034,4 +1045,28 @@ function getColumnsForSheet(sheetName) {
   mapping[CONFIG.SHEET_NAMES.SUBCATEGORIAS]  = COLUMNS.SUBCATEGORIAS; // v4.6
 
   return mapping[sheetName] || [];
+}
+
+/**
+ * Garante que a aba possui esquema de colunas definido ANTES de gravar.
+ *
+ * Por que existe: getColumnsForSheet devolve uma lista vazia quando a aba
+ * não está mapeada. Sem esta verificação, a gravação seguia adiante e
+ * falhava mais à frente com a mensagem genérica do appendRow ("a linha não
+ * pode vir vazia"), que não indica a causa real. O cenário típico é o
+ * projeto do Apps Script ficar dessincronizado — por exemplo, Config.gs
+ * atualizado (SHEET_NAMES/COLUMNS) mas Database.gs ainda na versão
+ * anterior (sem o mapeamento da aba nova).
+ *
+ * É apenas defensiva: quando o esquema está correto, não altera nada.
+ * @param {string} sheetName - Nome da aba de destino.
+ * @param {string[]} columns - Colunas devolvidas por getColumnsForSheet.
+ * @throws {Error} Quando a aba não possui esquema mapeado.
+ */
+function assertColumnsForSheet_(sheetName, columns) {
+  if (!columns || columns.length === 0) {
+    throw new Error('Esquema não encontrado para a aba "' + sheetName +
+      '". Verifique se Config.gs (SHEET_NAMES/COLUMNS) e Database.gs ' +
+      '(getColumnsForSheet) estão atualizados no projeto do Apps Script.');
+  }
 }
